@@ -1,0 +1,49 @@
+package com.zhanghan.sshproxyproject.controller;
+
+import com.zhanghan.sshproxyproject.common.utils.UserHolder;
+import com.zhanghan.sshproxyproject.dto.LoginFormDTO;
+import com.zhanghan.sshproxyproject.dto.Result;
+import com.zhanghan.sshproxyproject.service.ILoginService;
+import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.concurrent.ConcurrentHashMap;
+
+@RestController
+@Slf4j
+@RequestMapping("/auth")
+public class LoginController {
+
+    @Resource
+    private ILoginService loginService;
+
+    @Resource
+    private ConcurrentHashMap<String, LoginFormDTO> LOGIN_MESSAGE;
+
+    @PostMapping("/login")
+    public Result login(@RequestBody LoginFormDTO loginFormDTO, HttpSession session){
+        log.info("{}用户-登录",loginFormDTO.getUsername());
+        return loginService.login(loginFormDTO,session);
+    }
+
+    @PostMapping("/logout")
+    public Result logout(HttpServletRequest request){
+        // 从请求头获取 token 并清理
+        String token = request.getHeader("authorization");
+        if (token != null) {
+            LoginFormDTO removed = LOGIN_MESSAGE.remove(token);
+            if (removed != null) {
+                log.info("用户{}-退出", removed.getUsername());
+            }
+        }
+        UserHolder.removeUser();
+        return Result.ok();
+    }
+
+}

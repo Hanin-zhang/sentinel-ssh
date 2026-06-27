@@ -1,0 +1,23 @@
+server:
+  port: 8080
+spring:
+  mvc:
+    servlet:
+      path: /api
+  application:
+    name: SSHProxy-project
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3306/sshproxy-project?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: your_db_username
+    password: your_db_password
+
+mybatis-plus:
+  type-aliases-package: com.zhanghan.sshproxyproject.entity
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    map-underscore-to-camel-case: true
+
+ssh:
+  public-key-path: C:\Users\HP\.ssh\id_rsa
+  timeout: 20000
