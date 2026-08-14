@@ -1,5 +1,6 @@
 package com.zhanghan.sshproxyproject;
 
+import com.zhanghan.sshproxyproject.schedule.BackendServerTask;
 import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -60,6 +61,22 @@ class SshProxyProjectApplicationTests {
     @Test
     void contextLoads() {
     }
+
+    /*
+    * 进行服务器在线心跳检测测试
+    * */
+    @Test
+    void testServerIsOnline(){
+        log.info("执行服务器检测");
+        boolean b = BackendServerTask.tryConnect("123.56.106.44", 52025, 5000);
+        if(b){
+            log.info("成功");
+        }else {
+            log.info("失败");
+        }
+    }
+
+
 
     // ==================== 场景一：瞬时并发测试 ====================
     // 所有线程在 CountDownLatch 发令后同时发起 SSH 连接，测突发流量下的表现

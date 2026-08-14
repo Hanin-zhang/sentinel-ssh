@@ -36,7 +36,13 @@ public class BackendManager {
     public void init(){
         log.info("初始化后台服务器列表");
         List<BackendServer> list = backendServerService.list();
-        serverList.addAll(list);
+        //遍历，除去离线服务器
+        for(BackendServer server:list){
+            //在线
+            if(server.getOnline()){
+                serverList.add(server);
+            }
+        }
     }
 
     //使用泛型,轮询
