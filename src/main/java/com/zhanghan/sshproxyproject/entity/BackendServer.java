@@ -32,7 +32,7 @@ public class BackendServer {
     private String password;
 
     //在线状态
-    private Boolean online;
+    private Boolean online = true;
 
     //当前连接数
     private Integer connectionCount;

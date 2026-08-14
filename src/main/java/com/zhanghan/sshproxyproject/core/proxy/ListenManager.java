@@ -71,7 +71,7 @@ public class ListenManager {
         log.info("开始执行任务->ip:{}",userSession.getRemoteAddress());
         //将任务异步交付给工作线程池
         workThreadPool.execute(()->{
-            boolean checkPass = connetToRealBackend(userIn,userOut,userChannel,user);
+            boolean checkPass = connectToRealBackend(userIn,userOut,userChannel,user);
             if(!checkPass){
                 log.error("代理端认证失败!");
                 userSession.close(true);
@@ -81,7 +81,7 @@ public class ListenManager {
 
     //实现认证校验
     //TODO 实现传参(username,password)
-    public boolean connetToRealBackend(InputStream userIn, OutputStream userOut,ServerChannel userChannel,User user){
+    public boolean connectToRealBackend(InputStream userIn, OutputStream userOut,ServerChannel userChannel,User user){
         //获取用户->代理服务的对话
         ServerSession userSession = userChannel.getServerSession();
         log.info("代理服务端进行第二次进行认证校验->用户:{},ip:{}",user.getUsername(),userSession.getRemoteAddress());
@@ -159,7 +159,7 @@ public class ListenManager {
                     .serverId(server.getId())
                     .build();
             //写入会话池
-            loginListener.addToOnlineSessionPool(sessionInfo);
+            loginListener.addToOnlineSessionPool(sessionInfo,server.getId());
 
 
             //创建Channel shell通道，实现交互式终端,打开命令行窗口

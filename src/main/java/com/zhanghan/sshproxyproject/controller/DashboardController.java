@@ -35,4 +35,12 @@ public class DashboardController {
         return dashboardService.getServers();
     }
 
+    /*
+    * 获取在线用户列表（含用户名、IP、服务器名等详情）
+    * */
+    @GetMapping("/online-users")
+    public Result getOnlineUsers(){
+        return dashboardService.getOnlineUsers();
+    }
+
 }

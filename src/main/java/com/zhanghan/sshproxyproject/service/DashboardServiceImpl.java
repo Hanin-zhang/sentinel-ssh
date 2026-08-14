@@ -3,10 +3,12 @@ package com.zhanghan.sshproxyproject.service;
 import com.zhanghan.sshproxyproject.dto.Result;
 import com.zhanghan.sshproxyproject.entity.BackendServer;
 import com.zhanghan.sshproxyproject.entity.DashboardData;
+import com.zhanghan.sshproxyproject.entity.SessionInfo;
 import com.zhanghan.sshproxyproject.mapper.AuditLogMapper;
 import com.zhanghan.sshproxyproject.mapper.DashboardMapper;
 import com.zhanghan.sshproxyproject.session.SessionManager;
 import com.zhanghan.sshproxyproject.vo.BackendServerVO;
+import com.zhanghan.sshproxyproject.vo.OnlineUserVO;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -14,9 +16,13 @@ import org.springframework.beans.BeanUtils;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static com.zhanghan.sshproxyproject.session.SessionManager.getDangerCmdNum;
@@ -66,7 +72,7 @@ public class DashboardServiceImpl implements IDashboardService {
     @Scheduled(fixedDelay = 3000)
     public void refreshData(){
         try {
-            log.info("=========刷新仪表盘数据=========");
+//            log.info("=========刷新仪表盘数据=========");
             //获取在线用户
             Integer onlineNum = getOnlineNum();
             //获取总用户数量
@@ -106,6 +112,51 @@ public class DashboardServiceImpl implements IDashboardService {
         for(BackendServer server:servers){
             BackendServerVO vo = new BackendServerVO();
             BeanUtils.copyProperties(server,vo);
+            // 手动映射 online → status（字段名不同，BeanUtils 无法自动拷贝）
+
+            vos.add(vo);
+        }
+
+        return Result.ok(vos);
+    }
+
+    /*
+    * 获取在线用户列表（含用户名、IP、服务器名等详情）
+    * */
+    @Override
+    public Result getOnlineUsers() {
+        List<OnlineUserVO> vos = new ArrayList<>();
+
+        // 加载所有服务器信息，方便按ID查找
+        List<BackendServer> allServers = backendServerService.list();
+        Map<Integer, BackendServer> serverMap = new HashMap<>();
+        for (BackendServer s : allServers) {
+            serverMap.put(s.getId(), s);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        for (Map.Entry<String, SessionInfo> entry : SessionManager.ONLINE_SESSIONS.entrySet()) {
+            SessionInfo session = entry.getValue();
+            BackendServer server = serverMap.get(session.getServerId());
+
+            long durationMinutes = 0;
+            if (session.getLoginTime() != null) {
+                durationMinutes = Duration.between(session.getLoginTime(), now).toMinutes();
+            }
+
+            OnlineUserVO vo = OnlineUserVO.builder()
+                    .sessionId(session.getSessionId())
+                    .username(session.getUsername())
+                    .role(session.getRole())
+                    .clientIp(session.getClientIp())
+                    .serverId(session.getServerId())
+                    .serverName(server != null ? server.getServerName() : "未知")
+                    .serverHost(server != null ? server.getHost() : "-")
+                    .loginTime(session.getLoginTime())
+                    .lastActiveTime(session.getLastActiveTime())
+                    .durationMinutes(durationMinutes)
+                    .build();
 
             vos.add(vo);
         }

@@ -22,7 +22,7 @@ public class BackendServerVO {
     private String host;
 
     //在线状态
-    private Boolean status;
+    private Boolean online;
 
     //当前连接数
     private Integer connectionCount;

@@ -36,23 +36,23 @@ import java.util.concurrent.Executor;
 
 import static com.zhanghan.sshproxyproject.common.Constants.BLOCK_COMMAND;
 import static com.zhanghan.sshproxyproject.common.utils.PermissionUtil.checkUserPermission;
-
-@ServerEndpoint("/test")
-@Slf4j
-public class WebTerminalEndpoint {
-
-    @OnOpen
-    public void onOpen(Session session){
-        log.info("连接成功");
-    }
-
-    @OnMessage
-    public void onMessage(String msg,Session session)
-            throws IOException {
-
-        log.info("收到消息 {}",msg);
-
-        session.getBasicRemote()
-                .sendText("echo:"+msg);
-    }
-}
+//
+//@ServerEndpoint("/test")
+//@Slf4j
+//public class WebTerminalEndpoint {
+//
+//    @OnOpen
+//    public void onOpen(Session session){
+//        log.info("连接成功");
+//    }
+//
+//    @OnMessage
+//    public void onMessage(String msg,Session session)
+//            throws IOException {
+//
+//        log.info("收到消息 {}",msg);
+//
+//        session.getBasicRemote()
+//                .sendText("echo:"+msg);
+//    }
+//}

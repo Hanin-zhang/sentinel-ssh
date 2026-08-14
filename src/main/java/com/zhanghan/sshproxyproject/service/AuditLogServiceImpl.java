@@ -6,7 +6,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zhanghan.sshproxyproject.dto.PageQueryDTO;
 import com.zhanghan.sshproxyproject.dto.Result;
+import com.zhanghan.sshproxyproject.entity.AiReviewResult;
 import com.zhanghan.sshproxyproject.entity.AuditLog;
+import com.zhanghan.sshproxyproject.entity.BackendServer;
+import com.zhanghan.sshproxyproject.entity.User;
 import com.zhanghan.sshproxyproject.mapper.AuditLogMapper;
 import com.zhanghan.sshproxyproject.vo.AuditLogVO;
 import io.netty.util.internal.StringUtil;
@@ -15,7 +18,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
-import javax.print.attribute.standard.PageRanges;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -51,7 +53,7 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
         List<AuditLog> list = logList.getRecords();
 
         List<AuditLogVO> logVOS = new ArrayList<>();
-        for(AuditLog log:list){
+        for (AuditLog log : list) {
             AuditLogVO vo = AuditLogVO.builder()
                     .id(log.getId())
                     .status(log.getStatus())
@@ -69,7 +71,7 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
 
         long total = logList.getTotal();
 
-        return Result.ok(logVOS,total);
+        return Result.ok(logVOS, total);
     }
 
     @Override
@@ -90,6 +92,62 @@ public class AuditLogServiceImpl extends ServiceImpl<AuditLogMapper, AuditLog> i
                 .riskLevel(computeRiskLevel(log.getCommand(), log.getStatus()))
                 .build();
         return Result.ok(vo);
+    }
+
+    // ==================== AI 告警日志记录（新增） ====================
+
+    /**
+     * 记录 AI 判定为 HIGH 的高危命令审计日志
+     * <p>
+     * status = 2 表示经 AI 二次审查后确认为高危操作。
+     * 与 status=1（静态拦截）区分，便于 Dashboard 区分告警来源。
+     */
+    @Override
+    public void saveHighRisk(String command, User user, BackendServer server, String userIp, AiReviewResult aiResult) {
+        AuditLog logs = AuditLog.builder()
+                .userId(user.getId())
+                .serverId(server.getId())
+                .serverHost(server.getHost())
+                .serverPort(server.getPort())
+                .username(user.getUsername())
+                .clientIp(userIp)
+                .command("[AI-HIGH] " + command)     // 前缀标记，方便前端筛选
+                .status(2)                             // 2 = AI 高危
+                .createTime(java.time.LocalDateTime.now())
+                .build();
+        save(logs);
+        log.info("高危审计日志已写入: user={}, cmd='{}', category={}",
+                user.getUsername(), abbreviate(command, 80), aiResult.getCategory());
+    }
+
+    /**
+     * 记录 AI 判定为 MEDIUM 的中危命令审计日志
+     * <p>
+     * status = 3 表示经 AI 审查存在潜在风险，静默记录供后续审计。
+     */
+    @Override
+    public void saveMediumRisk(String command, User user, BackendServer server, String userIp, AiReviewResult aiResult) {
+        AuditLog logs = AuditLog.builder()
+                .userId(user.getId())
+                .serverId(server.getId())
+                .serverHost(server.getHost())
+                .serverPort(server.getPort())
+                .username(user.getUsername())
+                .clientIp(userIp)
+                .command("[AI-MEDIUM] " + command)    // 前缀标记
+                .status(3)                             // 3 = AI 中危
+                .createTime(java.time.LocalDateTime.now())
+                .build();
+        save(logs);
+        log.info("中危审计日志已写入: user={}, cmd='{}', category={}",
+                user.getUsername(), abbreviate(command, 80), aiResult.getCategory());
+    }
+
+    // ==================== 工具方法 ====================
+
+    private static String abbreviate(String str, int maxLen) {
+        if (str == null) return null;
+        return str.length() > maxLen ? str.substring(0, maxLen) + "..." : str;
     }
 
     /**

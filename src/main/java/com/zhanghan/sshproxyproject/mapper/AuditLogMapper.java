@@ -40,4 +40,8 @@ public interface AuditLogMapper extends BaseMapper<AuditLog> {
     // 危险命令排行榜（按用户分组统计危险命令数）
     @Select("select username, count(*) as danger_count from audit_log where status = 1 group by username order by danger_count desc limit 10")
     List<Map<String, Object>> getDangerRanking();
+
+    // 查询近N天的命令（用于风险趋势分析）
+    @Select("select command, status, DATE(create_time) as cmd_date from audit_log where create_time >= #{startDate} order by create_time")
+    List<Map<String, Object>> getCommandsSince(String startDate);
 }

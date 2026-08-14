@@ -13,6 +13,6 @@ public interface UserMapper extends BaseMapper<User> {
     @Select("select * from user where username = #{username}")
     User findByName(String username);
 
-    @Update("update user set dangerTotalNum = dangerTotalNum + 1 where id = #{userId}")
+    @Update("update user set danger_total_num = danger_total_num + 1 where id = #{userId}")
     boolean updateDangerCmd(Long userId);
 }

@@ -6,4 +6,9 @@ public interface IDashboardService {
     Result getData();
 
     Result getServers();
+
+    /*
+    * 获取在线用户列表
+    * */
+    Result getOnlineUsers();
 }

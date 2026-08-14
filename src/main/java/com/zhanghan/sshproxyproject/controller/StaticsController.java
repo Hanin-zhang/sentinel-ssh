@@ -88,7 +88,7 @@ public class StaticsController {
         data.put("totalCommandCount", auditLogMapper.getTotalCmdNum());
         // 今日危险命令数
         Long todayDanger = auditLogMapper.countByUserAndToday(null, today);
-        data.put("todayDangerCount", 0);
+        data.put("todayDangerCount", todayDanger != null ? todayDanger : 0);
         // 总危险命令数
         data.put("totalDangerCount", auditLogMapper.getTotalDangerCmdNum());
 
@@ -96,32 +96,60 @@ public class StaticsController {
     }
 
     /**
-     * 近7天风险趋势
+     * 近7天风险趋势（基于真实审计日志数据）
      */
     @GetMapping("/risk-trend")
     public Result getRiskTrend() {
-        List<String> dates = new ArrayList<>();
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
+
+        // 初始化近7天数据结构
+        Map<String, int[]> dailyCounts = new LinkedHashMap<>(); // dateStr -> [high, medium, low]
+        for (int i = 6; i >= 0; i--) {
+            LocalDate date = LocalDate.now().minusDays(i);
+            dailyCounts.put(date.format(fmt), new int[]{0, 0, 0});
+        }
+
+        //TODO 有待检验
+        // 从数据库查询近7天所有命令
+        String startDate = LocalDate.now().minusDays(7).toString() + " 00:00:00";
+        List<Map<String, Object>> commands = auditLogMapper.getCommandsSince(startDate);
+
+        if (commands != null) {
+            for (Map<String, Object> row : commands) {
+                Object cmdObj = row.get("command");
+                Object dateObj = row.get("cmd_date");
+                if (cmdObj == null || dateObj == null) continue;
+
+                String cmd = cmdObj.toString();
+                String dateStr = dateObj.toString(); // e.g. "2026-07-05"
+                // 格式化为 MM-dd
+                try {
+                    LocalDate cmdDate = LocalDate.parse(dateStr);
+                    dateStr = cmdDate.format(fmt);
+                } catch (Exception ignored) {}
+
+                int[] counts = dailyCounts.get(dateStr);
+                if (counts == null) continue; // 不在7天窗口内
+
+                // 使用与 AI 分析一致的风险分类规则
+                String riskLevel = classifyRisk(cmd);
+                switch (riskLevel) {
+                    case "HIGH"   -> counts[0]++;
+                    case "MEDIUM" -> counts[1]++;
+                    default       -> counts[2]++;
+                }
+            }
+        }
+
+        List<String> dates = new ArrayList<>(dailyCounts.keySet());
         List<Integer> highList = new ArrayList<>();
         List<Integer> mediumList = new ArrayList<>();
         List<Integer> lowList = new ArrayList<>();
 
-        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
-
-        // 模拟近7天趋势数据（实际应通过SQL GROUP BY日期统计）
-        // 用随机模拟数据，实际项目中应调用 mapper 按日期分组查询
-        Random rand = new Random(42); // 固定种子，保证每次结果一致
-        for (int i = 6; i >= 0; i--) {
-            LocalDate date = LocalDate.now().minusDays(i);
-            dates.add(date.format(fmt));
-
-            // 基于真实数据趋势的模拟
-            int high = rand.nextInt(5) + (int) (auditLogMapper.getTotalDangerCmdNum() % 5);
-            int medium = rand.nextInt(8) + 3;
-            int low = rand.nextInt(30) + 40;
-
-            highList.add(Math.max(0, high));
-            mediumList.add(Math.max(0, medium));
-            lowList.add(Math.max(0, low));
+        for (int[] counts : dailyCounts.values()) {
+            highList.add(counts[0]);
+            mediumList.add(counts[1]);
+            lowList.add(counts[2]);
         }
 
         Map<String, Object> data = new HashMap<>();
@@ -131,5 +159,38 @@ public class StaticsController {
         data.put("low", lowList);
 
         return Result.ok(data);
+    }
+
+    /**
+     * 根据命令内容判定风险等级（与 AI 分析保持一致的规则）
+     */
+    private String classifyRisk(String cmd) {
+        String lower = cmd.toLowerCase();
+        if (lower.matches(".*rm\\s+-rf.*") || lower.matches(".*rm\\s+-r\\s+/.*")
+                || lower.contains("dd if=") || lower.contains("mkfs.")
+                || lower.matches(".*:\\(\\)\\s*\\{.*") || lower.contains("> /dev/sda")) {
+            return "HIGH";
+        }
+        if (lower.contains("chmod 777") || lower.contains("iptables -f")
+                || lower.contains("kill -9") || lower.contains("docker rm -f")) {
+            return "HIGH";
+        }
+        if (lower.contains("sudo ") || lower.contains("passwd ")
+                || lower.contains("useradd ") || lower.contains("usermod ")
+                || lower.contains("chown ")) {
+            return "MEDIUM";
+        }
+        if (lower.matches(".*wget.*\\|.*sh.*") || lower.matches(".*curl.*\\|.*sh.*")
+                || lower.matches(".*\\./.*\\.sh.*")) {
+            return "MEDIUM";
+        }
+        if (lower.contains("docker exec") || lower.contains("kubectl exec")
+                || lower.contains("ssh -")) {
+            return "MEDIUM";
+        }
+        if (lower.contains("iptables ") || lower.contains("docker rm")) {
+            return "MEDIUM";
+        }
+        return "LOW";
     }
 }
