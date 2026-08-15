@@ -44,4 +44,10 @@ public interface AuditLogMapper extends BaseMapper<AuditLog> {
     // 查询近N天的命令（用于风险趋势分析）
     @Select("select command, status, DATE(create_time) as cmd_date from audit_log where create_time >= #{startDate} order by create_time")
     List<Map<String, Object>> getCommandsSince(String startDate);
+
+    // 近 N 天各状态统计
+    @Select("select status, count(*) as cnt from audit_log where create_time >= #{start} group by status")
+    List<Map<String,Object>> countByStatus(String start);
+
+
 }

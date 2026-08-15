@@ -82,4 +82,30 @@ public class ThreadPoolConfig {
                 new ThreadPoolExecutor.CallerRunsPolicy()
         );
     }
+
+    /**
+     * AI 策略建议生成线程池
+     * <p>
+     * 定时任务每天 0 点触发，读取审计统计数据并调用 DeepSeek 生成安全策略建议。
+     * 频率极低（一天一次），池子给最小即可，避免与其他业务线程池抢占资源。
+     * <p>
+     * 参数说明：
+     * <ul>
+     *   <li>core=1 / max=2：单次任务足够</li>
+     *   <li>队列容量=10：缓冲极端情况下的一次性并发</li>
+     *   <li>CallerRunsPolicy：队列满时回退到调度线程执行（不丢任务）</li>
+     * </ul>
+     */
+    @Bean("recommendExecutor")
+    public Executor recommendExecutor() {
+        return new ThreadPoolExecutor(
+                1,
+                2,
+                60L,
+                TimeUnit.SECONDS,
+                new LinkedBlockingDeque<>(10),
+                Executors.defaultThreadFactory(),
+                new ThreadPoolExecutor.CallerRunsPolicy()
+        );
+    }
 }

@@ -24,7 +24,7 @@ public class BackendServerTask {
     /*
     * Tcp检测服务器端口是否在线，检测3次防止网络抖动
     * */
-    @Scheduled(fixedDelay = 360000)
+    @Scheduled(cron = "0 0 */6 * * *")
     public void refreshBackendServerStatus(){
         log.info("=====执行服务器在线心跳检测=====");
 
@@ -45,11 +45,18 @@ public class BackendServerTask {
     }
 
     public static boolean tryConnect(String host,int port,int timeoutMs){
-        try (Socket socket = new Socket()) {
-            socket.connect(new InetSocketAddress(host, port), timeoutMs);
-            return true;
-        } catch (Exception e) {
-            return false;
+        final int maxRetry = 3;
+        for(int i=0;i < maxRetry;i++) {
+            try (Socket socket = new Socket()) {
+                socket.connect(new InetSocketAddress(host, port), timeoutMs);
+                return true;
+            } catch (Exception e) {
+                if(i == maxRetry-1){
+                    //最后一次
+                    break;
+                }
+            }
         }
+        return false;
     }
 }
