@@ -36,6 +36,9 @@ public class BackendManager {
     public void init(){
         log.info("初始化后台服务器列表");
         List<BackendServer> list = backendServerService.list();
+        if(list==null || list.isEmpty()){
+            throw new RuntimeException();
+        }
         //遍历，除去离线服务器
         for(BackendServer server:list){
             //在线
