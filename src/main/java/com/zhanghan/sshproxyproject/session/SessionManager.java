@@ -39,13 +39,18 @@ public class SessionManager {
 
 
     /*
-    * 强制断连，用于用户输入危险指令
+    * 强制断连，用于用户输入危险指令或管理员踢人
     * */
-    public void forceDisconnect(String sessionId){
+    public boolean forceDisconnect(String sessionId){
 
         SessionInfo sessionInfo = ONLINE_SESSIONS.get(sessionId);
-
+        if (sessionInfo == null) {
+            log.warn("强制断连失败，会话不存在或已断开: sessionId={}", sessionId);
+            return false;
+        }
+        log.warn("🚨 强制断开会话: sessionId={}, serverId={}", sessionId, sessionInfo.getServerId());
         closeSession(sessionId, sessionInfo);
+        return true;
     }
 
     private void closeSession(String sessionId, SessionInfo sessionInfo) {

@@ -29,6 +29,10 @@ public class LoginInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         //获取token
         String token = request.getHeader("authorization");
+        // 浏览器原生 EventSource 无法自定义请求头，SSE 连接改用 ?token=xxx 传参
+        if (StringUtil.isNullOrEmpty(token)) {
+            token = request.getParameter("token");
+        }
         //未授权，拦截
         if(StringUtil.isNullOrEmpty(token)){
             response.setStatus(401);

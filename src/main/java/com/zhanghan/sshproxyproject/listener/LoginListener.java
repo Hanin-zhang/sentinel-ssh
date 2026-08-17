@@ -2,7 +2,6 @@ package com.zhanghan.sshproxyproject.listener;
 
 import com.zhanghan.sshproxyproject.entity.SessionInfo;
 import com.zhanghan.sshproxyproject.mapper.BackendServerMapper;
-import com.zhanghan.sshproxyproject.session.SessionManager;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.sshd.common.session.Session;
