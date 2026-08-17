@@ -5,6 +5,8 @@ import com.zhanghan.sshproxyproject.dto.Result;
 import com.zhanghan.sshproxyproject.entity.User;
 import com.zhanghan.sshproxyproject.service.IUserService;
 import com.zhanghan.sshproxyproject.vo.UserVO;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.ArrayList;
 import java.util.List;
 
+@Tag(name = "用户管理", description = "用户列表查询")
 @RestController
 @Slf4j
 @RequestMapping("/user")
@@ -23,6 +26,7 @@ public class UserController {
     @Resource
     private IUserService userService;
 
+    @Operation(summary = "获取用户列表")
     @GetMapping("/list")
     public Result showUsers(){
         log.info("展示用户列表");

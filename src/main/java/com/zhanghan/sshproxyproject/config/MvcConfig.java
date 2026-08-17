@@ -16,7 +16,12 @@ public class MvcConfig implements WebMvcConfigurer {
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
         registry.addInterceptor(loginInterceptor)
-                .excludePathPatterns("/auth/**")    //登录接口，放行
+                .excludePathPatterns(
+                        "/auth/**",                 //登录接口，放行
+                        "/v3/api-docs/**",          //Swagger 接口文档 JSON
+                        "/swagger-ui/**",           //Swagger UI 页面
+                        "/swagger-ui.html"
+                )
                 .order(0);
     }
 }

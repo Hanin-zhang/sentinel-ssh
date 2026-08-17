@@ -8,6 +8,8 @@ import com.zhanghan.sshproxyproject.mapper.BackendServerMapper;
 import com.zhanghan.sshproxyproject.service.IBackendServerService;
 import com.zhanghan.sshproxyproject.service.IUserService;
 import com.zhanghan.sshproxyproject.session.SessionManager;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -18,6 +20,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 
+@Tag(name = "统计分析", description = "个人统计 / 全局统计 / 风险趋势")
 @RestController
 @Slf4j
 @RequestMapping("/statistics")
@@ -33,6 +36,7 @@ public class StaticsController {
     /**
      * 个人统计（当前登录用户）
      */
+    @Operation(summary = "个人统计", description = "当前登录用户的命令数 / 危险命令数等")
     @GetMapping("/personal")
     public Result getPersonalStats() {
         LoginFormDTO currentUser = UserHolder.getUser();
@@ -68,6 +72,7 @@ public class StaticsController {
     /**
      * 全局统计
      */
+    @Operation(summary = "全局统计", description = "总用户 / 服务器 / 命令数等")
     @GetMapping("/global")
     public Result getGlobalStats() {
         LocalDate today = LocalDate.now();
@@ -98,6 +103,7 @@ public class StaticsController {
     /**
      * 近7天风险趋势（基于真实审计日志数据）
      */
+    @Operation(summary = "近7天风险趋势", description = "基于审计日志的 HIGH/MEDIUM/LOW 分布")
     @GetMapping("/risk-trend")
     public Result getRiskTrend() {
         DateTimeFormatter fmt = DateTimeFormatter.ofPattern("MM-dd");
