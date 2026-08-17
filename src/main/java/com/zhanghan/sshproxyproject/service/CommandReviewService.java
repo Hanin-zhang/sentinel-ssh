@@ -104,9 +104,9 @@ public class CommandReviewService {
                 log.info("审查: 灰区命令提交异步AI, user={}, cmd='{}', rule='{}'",
                         user.getUsername(), abbreviate(command), staticResult.getMatchedRule());
 
-                // 异步触发 Phase 2（不阻塞返回）
-                submitAsyncAiReview(command, user, staticResult);
-
+                // 注意：不在此处直接触发 AI 审查 —— 灰区命令由调用方 ProxyForwarder
+                // 统一走 submitAsyncAiReviewWithAlert（带告警回调），
+                // 避免同一条命令触发两次 DeepSeek API 调用。
                 return CommandProcessor.suspicious(
                         staticResult.getReason(),
                         staticResult.getMatchedRule()
@@ -129,9 +129,9 @@ public class CommandReviewService {
     // ==================== 异步 AI 审查（Phase 2） ====================
 
     /**
-     * 异步提交 AI 审查，不阻塞主线程
+     * 异步提交 AI 审查并自动触发告警回调
      * <p>
-     * AI 返回后根据风险等级自动回调 {@link AlertService} 的方法：
+     * AI 审查完成后按风险等级自动回调 {@link AlertService} 执行对应动作：
      * <ul>
      *   <li>HIGH → {@link AlertService#handleHighRiskAlert}</li>
      *   <li>MEDIUM → {@link AlertService#handleMediumRiskAlert}</li>
@@ -140,41 +140,6 @@ public class CommandReviewService {
      * <p>
      * AI 调用失败（网络超时 / 服务不可用等）时自动降级，
      * 不影响用户正在进行的 SSH 会话。
-     *
-     * @param command      原始命令
-     * @param user         执行用户
-     * @param staticResult 静态审查结果（含 matchedRule，供 AI 参考上下文）
-     */
-    @Async("alertExecutor")
-    public void submitAsyncAiReview(String command, User user, StaticReviewResult staticResult) {
-        // 注意：此方法异步执行，BackendServer / sessionId / userIp 由调用方注入。
-        // 对于 ProxyForwarder 场景，需要额外的上下文传递。
-        // 此处仅记录 AI 结果，告警动作由 ProxyForwarder 的回调版本完成。
-        log.debug("异步 AI 审查启动: cmd='{}', user={}", abbreviate(command), user.getUsername());
-
-        try {
-            //发送请求
-            AiReviewResult aiResult = deepSeekService.reviewCommand(command, user.getUsername(), user.getRole());
-
-            if (aiResult == null) {
-                log.warn("异步 AI 审查返回 null（API 调用失败降级），cmd='{}'", abbreviate(command));
-                return;
-            }
-
-            log.info("异步 AI 审查完成: cmd='{}', level={}, category={}, reason={}",
-                    abbreviate(command), aiResult.getLevel(), aiResult.getCategory(), aiResult.getReason());
-
-        } catch (Exception e) {
-            log.error("异步 AI 审查异常（不影响用户操作）, cmd='{}'", abbreviate(command), e);
-            // 异常降级：不做任何告警，不抛异常
-        }
-    }
-
-    /**
-     * 异步提交 AI 审查并自动触发告警回调（完整版）
-     * <p>
-     * 相比 {@link #submitAsyncAiReview}，此方法额外接收会话上下文，
-     * AI 审查完成后自动回调 {@link AlertService} 执行对应等级的告警动作。
      *
      * @param command   原始命令
      * @param user      执行用户

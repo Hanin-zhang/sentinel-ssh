@@ -185,7 +185,7 @@ public class ProxyForwarder {
                     // 两级命令审查：Phase 1 静态规则 + Phase 2 异步 AI（新增改造）
                     // 替代原有的 BLOCK_COMMAND.contains() + checkUserPermission
                     // ============================================================
-                    //此处调用异步方法submitAsyncAiReview
+                    // 两级审查（Phase 1 同步静态规则；SUSPICIOUS 由下方 submitAsyncAiReviewWithAlert 异步触发 AI）
                     CommandProcessor reviewResult = commandReviewService.review(command, user);
 
                     // 1. 根据审查结果确定审计日志状态
