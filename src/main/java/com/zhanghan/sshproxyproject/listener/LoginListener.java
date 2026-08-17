@@ -22,8 +22,6 @@ import static com.zhanghan.sshproxyproject.session.SessionManager.ONLINE_SESSION
 public class LoginListener implements SessionListener {
 
     @Resource
-    private SessionManager sessionManager;
-    @Resource
     private BackendServerMapper backendServerMapper;
 
     //统计今日登录次数

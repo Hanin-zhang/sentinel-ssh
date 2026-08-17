@@ -157,6 +157,8 @@ public class ListenManager {
                     .lastActiveTime(LocalDateTime.now())
                     .status(ONLINE)
                     .serverId(server.getId())
+                    .toBackendSession(toBackendSession)
+                    .userSession(userSession)
                     .build();
             //写入会话池
             loginListener.addToOnlineSessionPool(sessionInfo,server.getId());

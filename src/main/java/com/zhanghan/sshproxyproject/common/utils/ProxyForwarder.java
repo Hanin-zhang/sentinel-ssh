@@ -120,7 +120,7 @@ public class ProxyForwarder {
 
 
     //关闭会话              用户<->代理                      代理<->服务器
-    private void closeAll(ServerSession userSession , ClientSession toBackendSession,String sessionId,Integer serverId){
+    public void closeAll(ServerSession userSession , ClientSession toBackendSession,String sessionId,Integer serverId){
         try {
             log.info("关闭会话");
             if(userSession != null) {
