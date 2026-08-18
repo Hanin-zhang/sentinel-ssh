@@ -6,6 +6,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.springframework.scheduling.annotation.Scheduled;
 
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
@@ -15,4 +16,7 @@ public interface UserMapper extends BaseMapper<User> {
 
     @Update("update user set danger_total_num = danger_total_num + 1 where id = #{userId}")
     boolean updateDangerCmd(Long userId);
+
+    @Select("select id from user where username = #{username}")
+    Long findIfHavingUser(String username);
 }
