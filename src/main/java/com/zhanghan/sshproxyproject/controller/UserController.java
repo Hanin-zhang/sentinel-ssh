@@ -1,11 +1,13 @@
 package com.zhanghan.sshproxyproject.controller;
 
 import ch.qos.logback.core.joran.util.beans.BeanUtil;
+import com.zhanghan.sshproxyproject.dto.RegisterDTO;
 import com.zhanghan.sshproxyproject.dto.Result;
 import com.zhanghan.sshproxyproject.entity.User;
 import com.zhanghan.sshproxyproject.entity.UserDTO;
 import com.zhanghan.sshproxyproject.mapper.UserMapper;
 import com.zhanghan.sshproxyproject.service.IUserService;
+import com.zhanghan.sshproxyproject.vo.CodeLimitResult;
 import com.zhanghan.sshproxyproject.vo.UserVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -56,9 +58,9 @@ public class UserController {
 
     @Operation(summary = "新增用户")
     @PostMapping("/add")
-    public Result addUser(@RequestBody UserDTO userDTO,@RequestParam String adminPassword){
-            log.info("新增用户{}",userDTO);
-            return userService.addUser(userDTO,adminPassword);
+    public Result addUser(@RequestBody UserDTO userDTO){
+            log.info("新增用户{}",userDTO.getUsername());
+            return userService.addUser(userDTO);
     }
 
     @Operation(summary = "校验用户名是否已存在（新增用户时失焦查重）")
@@ -71,5 +73,19 @@ public class UserController {
         return Result.ok(exists);
     }
 
+    @Operation(summary = "发送验证码")
+    @PostMapping("/sendCode")
+    public CodeLimitResult sendCode(String mail){
+        log.info("给{}发送验证码",mail);
+        return userService.sendCode(mail);
+    }
+
+
+    @Operation(summary = "注册新用户")
+    @PostMapping("/registerByCode")
+    public Result register(@RequestBody RegisterDTO registerDTO){
+        log.info("用户注册");
+        return userService.registerByCode(registerDTO);
+    }
 
 }

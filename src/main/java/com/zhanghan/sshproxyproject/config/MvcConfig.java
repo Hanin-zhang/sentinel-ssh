@@ -20,7 +20,9 @@ public class MvcConfig implements WebMvcConfigurer {
                         "/auth/**",                 //登录接口，放行
                         "/v3/api-docs/**",          //Swagger 接口文档 JSON
                         "/swagger-ui/**",           //Swagger UI 页面
-                        "/swagger-ui.html"
+                        "/swagger-ui.html",
+                        "/user/sendCode",
+                        "/user/registerByCode"
                 )
                 .order(0);
     }

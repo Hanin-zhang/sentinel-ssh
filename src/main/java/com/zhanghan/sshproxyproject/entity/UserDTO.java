@@ -16,4 +16,7 @@ public class UserDTO {
 
     //默认为游客
     private String role = MYGUEST;
+
+    //验证权限密码
+    private String adminPassword;
 }
