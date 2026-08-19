@@ -1,6 +1,7 @@
 package com.zhanghan.sshproxyproject.controller;
 
 import ch.qos.logback.core.joran.util.beans.BeanUtil;
+import com.zhanghan.sshproxyproject.common.utils.EmailValidateUtil;
 import com.zhanghan.sshproxyproject.dto.RegisterDTO;
 import com.zhanghan.sshproxyproject.dto.Result;
 import com.zhanghan.sshproxyproject.entity.User;
@@ -64,7 +65,7 @@ public class UserController {
     }
 
     @Operation(summary = "校验用户名是否已存在（新增用户时失焦查重）")
-    @GetMapping("/exist")
+    @GetMapping("/existUsername")
     public Result checkUsername(@RequestParam String username){
         if (!StringUtils.hasText(username)) {
             return Result.fail("用户名不能为空");
@@ -81,11 +82,23 @@ public class UserController {
     }
 
 
-    @Operation(summary = "注册新用户")
+    @Operation(summary = "注册新用户（校验验证码，通过则跳转至填写个人信息）")
     @PostMapping("/registerByCode")
     public Result register(@RequestBody RegisterDTO registerDTO){
         log.info("用户注册");
         return userService.registerByCode(registerDTO);
+    }
+
+
+
+    @Operation(summary = "校验该邮箱是否已存在（注册时失焦查重）")
+    @GetMapping("/existEmail")
+    public Result checkMail(@RequestParam String email){
+        if (!EmailValidateUtil.isValidEmail(email)) {
+            return Result.fail("邮箱格式错误");
+        }
+        boolean exists = userService.emailExists(email.trim());
+        return Result.ok(exists);
     }
 
 }

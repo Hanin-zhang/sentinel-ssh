@@ -31,6 +31,8 @@ public class User {
 
     private String publicKey; //公钥
 
+    private String email; //邮箱
+
     //该用户总共输入的危险指令
     private Long DangerTotalNum;
 

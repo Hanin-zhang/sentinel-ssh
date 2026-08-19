@@ -20,4 +20,6 @@ public interface IUserService extends IService<User> {
     Result registerByCode(RegisterDTO registerDTO);
 
     CodeLimitResult sendCode(String mail);
+
+    boolean emailExists(String email);
 }

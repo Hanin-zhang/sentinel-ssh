@@ -16,6 +16,7 @@ import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
+import com.zhanghan.sshproxyproject.common.Constants;
 import com.zhanghan.sshproxyproject.common.utils.CaffeineUtil;
 import com.zhanghan.sshproxyproject.common.utils.EmailValidateUtil;
 import java.time.LocalDateTime;
@@ -80,6 +81,7 @@ public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements I
                 .password(password)
                 .role(role)
                 .status(1)
+                .email(userDTO.getEmail())
                 .DangerTotalNum(0L)
                 .createTime(LocalDateTime.now())
                 .updateTime(LocalDateTime.now())
@@ -92,12 +94,57 @@ public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements I
         return Result.ok();
     }
 
-
+    /*
+    * 注册（邮箱验证码注册，无需管理员验权密码）
+    * 两步共用本接口：
+    *   第一步：只传 email + code → 校验验证码通过即返回成功，前端据此跳转填资料页
+    *   第二步：连同 username / password 再调一次 → 二次校验验证码 + 创建用户（角色强制 guest）
+    * 说明：注册的授权是"拥有该邮箱"，与 addUser 的管理员暗号是两套信任模型，不能复用 addUser
+    * */
     @Override
     public Result registerByCode(RegisterDTO registerDTO) {
-        String mail = registerDTO.getMail();
-        registerDTO.getCode();
-        return Result.ok();
+        // ① 基础判空
+        if (registerDTO == null || !StringUtils.hasText(registerDTO.getEmail()) || !StringUtils.hasText(registerDTO.getCode())) {
+            return Result.fail("邮箱或验证码不能为空！");
+        }
+        String email = registerDTO.getEmail().trim();
+        String userCode = registerDTO.getCode().trim();
+
+        // ② 校验验证码（拥有邮箱 = 注册授权）
+        if (!caffeineUtil.checkCodeIfRight(email, userCode)) {
+            return Result.fail("验证码不正确或已过期！");
+        }
+
+        // ③ 只有 email+code，属于第一步验证码校验，通过即返回
+        String username = registerDTO.getUsername() == null ? "" : registerDTO.getUsername().trim();
+        String password = registerDTO.getPassword();
+        if (!StringUtils.hasText(username) && !StringUtils.hasText(password)) {
+            return Result.ok();
+        }
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(password)) {
+            return Result.fail("用户名或密码不能为空！");
+        }
+
+        // ④ 查重：邮箱 + 用户名
+        if (userMapper.findIfHavingUserByEmail(email) != null) {
+            return Result.fail("该邮箱已注册");
+        }
+        if (userMapper.findIfHavingUser(username) != null) {
+            return Result.fail("该用户名已存在");
+        }
+
+        // ⑤ 创建用户：自注册强制 guest 角色
+        User user = User.builder()
+                .username(username)
+                .password(password)
+                .role(Constants.MYGUEST)
+                .status(1)
+                .email(email)
+                .DangerTotalNum(0L)
+                .createTime(LocalDateTime.now())
+                .updateTime(LocalDateTime.now())
+                .build();
+        return save(user) ? Result.ok() : Result.fail("注册失败，请稍后重试");
     }
 
     /*
@@ -118,5 +165,9 @@ public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements I
         return caffeineUtil.tryAcquire(mail,code);
     }
 
+    @Override
+    public boolean emailExists(String email) {
+        return userMapper.findIfHavingUserByEmail(email) != null;
+    }
 
 }

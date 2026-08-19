@@ -4,6 +4,7 @@ package com.zhanghan.sshproxyproject.common.utils;
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.zhanghan.sshproxyproject.vo.CodeLimitResult;
+import io.netty.util.internal.StringUtil;
 import jakarta.annotation.Resource;
 import jakarta.mail.MessagingException;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +36,8 @@ public class CaffeineUtil {
 
     // ========== 常量统一配置 ==========
     private static final int MAX_QUOTA = 5;                // 10分钟最多5次
-    private static final long QUOTA_WINDOW_MIN = 10;  // 额度窗口：10分钟
+    private static final long QUOTA_WINDOW_MIN = 10;    // 额度窗口：10分钟
+    private static final long CODE_EXPIRE = 5;         //验证码过期时间：5分钟
     private static final long COOL_DOWN_SECONDS = 60;    // 单次冷却：1分钟
     private static final int MAX_CACHE_SIZE = 20_000;      // 缓存最大容量
 
@@ -47,6 +49,11 @@ public class CaffeineUtil {
     public final Cache<String, Long> oneMinuteCache = Caffeine.newBuilder()
             .expireAfterWrite(COOL_DOWN_SECONDS, TimeUnit.SECONDS)
             .maximumSize(MAX_CACHE_SIZE)
+            .build();
+
+    public final Cache<String,String> codeCache = Caffeine.newBuilder()
+            .maximumSize(MAX_CACHE_SIZE)
+            .expireAfterWrite(CODE_EXPIRE,TimeUnit.MINUTES)
             .build();
 
     /*
@@ -109,6 +116,9 @@ public class CaffeineUtil {
         //发送验证码
         //由邮箱发送验证码
         try {
+            //将验证码存入codeCache（put 覆盖旧码：重发后旧码立即作废、新码生效；
+            //若用 putIfAbsent，5分钟内重发会因旧码未过期而写不进去，新码永远校验不过）
+            codeCache.asMap().put(email, code);
             emailUtil.sendCodeMail(email,code);
         } catch (MessagingException e) {
             log.error("发送验证码异常");
@@ -117,4 +127,18 @@ public class CaffeineUtil {
         return CodeLimitResult.allow();
     }
 
+    /*
+    * 校验用户输入的code是否一致
+    * */
+    public boolean checkCodeIfRight(String email,String userCode){
+        //code为空
+        if(StringUtil.isNullOrEmpty(userCode)){
+            return false;
+        }
+
+        String code = codeCache.getIfPresent(email);
+
+        //如果不一致
+        return userCode.equals(code);
+    }
 }

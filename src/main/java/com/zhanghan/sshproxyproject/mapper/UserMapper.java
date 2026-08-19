@@ -19,4 +19,7 @@ public interface UserMapper extends BaseMapper<User> {
 
     @Select("select id from user where username = #{username}")
     Long findIfHavingUser(String username);
+
+    @Select("select id from user where email = #{email}")
+    Long findIfHavingUserByEmail(String email);
 }
