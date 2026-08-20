@@ -179,7 +179,8 @@ mvn clean package -DskipTests
 java -jar target/SSHProxy-project-0.0.1-SNAPSHOT.jar
 ```
 IDE 中直接运行 `SshProxyProjectApplication` 亦可。启动后：
-- **HTTP API / 前端看板**：`http://localhost:8080/api`（前端 `index.html` 置于项目根目录，可用静态服务或直接打开）
+- **前端看板**：`http://localhost:8080/`（`index.html` 位于 `src/main/resources/static/`，由 Spring Boot 自动托管，打包进 jar 一体化部署）
+- **HTTP API**：`http://localhost:8080/api`
 - **SSH 代理端口**：`localhost:52020`
 - **Swagger 文档**：`http://localhost:8080/api/swagger-ui/index.html`
 - 验证 SSH 接入：`ssh -p 52020 <用户名>@localhost`，输入数据库用户密码

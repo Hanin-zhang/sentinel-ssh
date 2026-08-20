@@ -1,0 +1,2000 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SSH Bastion — 堡垒机管理系统</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand:  { 50:'#e8f0ff', 100:'#c5d9ff', 200:'#9ebfff', 300:'#78a5ff', 400:'#5c8fff', 500:'#165DFF', 600:'#144de5', 700:'#123ecc', 800:'#1030b2', 900:'#0e2299' },
+            surface:{ DEFAULT:'#ffffff', secondary:'#f5f5f7', tertiary:'#e8e8ed' },
+            muted:  '#6e6e73',
+            border: '#e5e5ea',
+            danger: '#ff3b30',
+            warn:   '#ff9500',
+            success:'#34c759',
+          },
+          borderRadius: { card:'12px', lg:'16px', xl:'20px' },
+          fontFamily: { sans:['-apple-system','BlinkMacSystemFont','SF Pro Text','Segoe UI', 'system-ui','sans-serif'], mono:['SF Mono','JetBrains Mono','ui-monospace','Menlo','monospace'] },
+          boxShadow: {
+            'soft': '0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)',
+            'card': '0 2px 8px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04)',
+            'modal':'0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06)',
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    :root {
+      --bg:      #f5f5f7;
+      --surface: #ffffff;
+      --fg:      #1d1d1f;
+      --muted:   #6e6e73;
+      --border:  #e5e5ea;
+      --accent:  #165DFF;
+      --danger:  #ff3b30;
+      --warn:    #ff9500;
+      --success: #34c759;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; overflow: hidden; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    ::-webkit-scrollbar { width: 5px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 10px; }
+
+    .login-screen {
+      position: fixed; inset: 0; z-index: 100;
+      display: flex; align-items: center; justify-content: center;
+      background: #f5f5f7;
+    }
+
+    .app-shell { display: flex; height: 100vh; overflow: hidden; }
+
+    .sidebar {
+      width: 240px; min-width: 240px;
+      background: rgba(255,255,255,0.72);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      padding: 20px 0;
+    }
+    .sidebar-logo {
+      padding: 0 20px 24px;
+      font-size: 18px; font-weight: 700;
+      letter-spacing: -0.02em;
+      color: var(--fg);
+      display: flex; align-items: center; gap: 10px;
+    }
+    .sidebar-logo .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--accent);
+    }
+    .sidebar-nav { flex: 1; display: flex; flex-direction: column; gap: 2px; padding: 0 12px; }
+    .sidebar-nav button {
+      display: flex; align-items: center; gap: 10px;
+      width: 100%; padding: 10px 12px;
+      border: none; border-radius: 8px;
+      background: transparent; color: var(--fg);
+      font-size: 14px; font-family: inherit; font-weight: 500;
+      cursor: pointer; text-align: left; transition: background 0.15s;
+      letter-spacing: -0.01em;
+    }
+    .sidebar-nav button:hover { background: rgba(0,0,0,0.04); }
+    .sidebar-nav button.active { background: rgba(22,93,255,0.08); color: var(--accent); font-weight: 600; }
+    .sidebar-nav button .icon { font-size: 18px; width: 24px; text-align: center; }
+
+    .sidebar-footer {
+      padding: 16px 20px 0;
+      border-top: 1px solid var(--border);
+      margin: 12px 12px 0;
+    }
+    .sidebar-footer .user-row {
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; color: var(--muted);
+    }
+    .sidebar-footer .avatar {
+      width: 32px; height: 32px; border-radius: 50%;
+      background: var(--accent); color: #fff;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 600;
+    }
+
+    .main-content {
+      flex: 1; overflow-y: auto; overflow-x: hidden;
+      padding: 32px 40px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border-radius: 12px;
+      padding: 20px 24px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04);
+      border: 1px solid var(--border);
+    }
+    .stat-card .label { font-size: 13px; color: var(--muted); font-weight: 500; text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-card .value { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; margin-top: 4px; }
+
+    .data-table {
+      width: 100%; border-collapse: collapse;
+      background: var(--surface);
+      border-radius: 12px; overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04), 0 4px 16px rgba(0,0,0,0.04);
+      border: 1px solid var(--border);
+    }
+    .data-table thead { background: #f9f9fb; }
+    .data-table th {
+      text-align: left; padding: 14px 20px;
+      font-size: 12px; font-weight: 600; color: var(--muted);
+      text-transform: uppercase; letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    .data-table td {
+      padding: 14px 20px; font-size: 14px;
+      border-bottom: 1px solid #f0f0f3;
+      color: var(--fg);
+    }
+    .data-table tbody tr:last-child td { border-bottom: none; }
+    .data-table tbody tr:hover { background: rgba(22,93,255,0.02); }
+
+    .badge {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 20px;
+      font-size: 12px; font-weight: 600; letter-spacing: 0.02em;
+    }
+    .badge.online { background: rgba(52,199,89,0.10); color: #1b8c3c; }
+    .badge.offline { background: rgba(142,142,147,0.10); color: #6e6e73; }
+    .badge.high { background: rgba(255,59,48,0.10); color: #cc2f28; }
+    .badge.medium { background: rgba(255,149,0,0.10); color: #cc7700; }
+    .badge.low { background: rgba(52,199,89,0.10); color: #1b8c3c; }
+    .badge-dot { width: 6px; height: 6px; border-radius: 50%; }
+    .badge.online .badge-dot { background: #34c759; }
+    .badge.offline .badge-dot { background: #aeaeb2; }
+
+    .terminal-wrapper {
+      background: #1c1c1e;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.15);
+      border: 1px solid #2c2c2e;
+    }
+    .terminal-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px;
+      background: #2c2c2e;
+      border-bottom: 1px solid #3a3a3c;
+    }
+    .terminal-header .dot { width: 12px; height: 12px; border-radius: 50%; }
+    .terminal-header .dot.r { background: #ff5f57; }
+    .terminal-header .dot.y { background: #febc2e; }
+    .terminal-header .dot.g { background: #28c840; }
+    .terminal-header .title {
+      flex: 1; text-align: center;
+      font-size: 12px; color: #8e8e93; font-family: var(--font-mono, monospace);
+    }
+    .terminal-body {
+      padding: 16px 20px;
+      height: 420px; overflow-y: auto;
+      font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+      font-size: 13px; line-height: 1.65;
+      color: #e5e5ea;
+    }
+    .terminal-body .line { white-space: pre-wrap; word-break: break-all; }
+    .terminal-body .line.prompt { color: #30d158; }
+    .terminal-body .line.output { color: #e5e5ea; }
+    .terminal-body .line.error { color: #ff453a; }
+    .terminal-body .line.info { color: #64d2ff; }
+    .terminal-input-row {
+      display: flex; align-items: center;
+      padding: 10px 16px;
+      background: #1c1c1e;
+      border-top: 1px solid #2c2c2e;
+      font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+      font-size: 13px;
+    }
+    .terminal-input-row .prompt-symbol { color: #30d158; margin-right: 8px; white-space: nowrap; }
+    .terminal-input-row input {
+      flex: 1; background: transparent; border: none; outline: none;
+      color: #fff; font-family: inherit; font-size: inherit; caret-color: #30d158;
+    }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 9px 18px; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 500; font-family: inherit;
+      cursor: pointer; transition: all 0.15s; letter-spacing: -0.01em;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: #144de5; }
+    .btn-ghost { background: transparent; color: var(--fg); }
+    .btn-ghost:hover { background: rgba(0,0,0,0.04); }
+    .btn-danger { background: transparent; color: var(--danger); }
+    .btn-danger:hover { background: rgba(255,59,48,0.06); }
+    .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+
+    .input {
+      width: 100%; padding: 12px 16px;
+      border: 1px solid var(--border); border-radius: 10px;
+      background: var(--surface); color: var(--fg);
+      font-size: 15px; font-family: inherit; outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(22,93,255,0.12); }
+    .input::placeholder { color: #aeaeb2; }
+
+    .form-label {
+      display: block; font-size: 13px; font-weight: 600; color: var(--muted);
+      margin-bottom: 6px;
+    }
+
+    .search-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: var(--surface);
+      border: 1px solid var(--border); border-radius: 10px;
+      padding: 8px 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    .search-bar input {
+      flex: 1; border: none; outline: none;
+      background: transparent; font-size: 14px; font-family: inherit;
+      color: var(--fg);
+    }
+    .search-bar input::placeholder { color: #aeaeb2; }
+
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: rgba(0,0,0,0.3);
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .modal {
+      background: var(--surface);
+      border-radius: 16px;
+      padding: 28px 32px;
+      width: 500px; max-width: 90vw;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.12), 0 2px 8px rgba(0,0,0,0.06);
+    }
+    .modal h2 { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 20px; }
+
+    .section-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px;
+    }
+    .section-header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; }
+    .section-header p { font-size: 14px; color: var(--muted); margin-top: 2px; }
+
+    .tab-switcher {
+      display: inline-flex; background: rgba(0,0,0,0.04);
+      border-radius: 8px; padding: 2px;
+    }
+    .tab-switcher button {
+      padding: 6px 16px; border: none; border-radius: 7px;
+      background: transparent; font-size: 13px; font-weight: 500;
+      font-family: inherit; cursor: pointer; color: var(--muted);
+      transition: all 0.15s;
+    }
+    .tab-switcher button.active { background: var(--surface); color: var(--fg); box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+    .login-card {
+      background: var(--surface);
+      border-radius: 20px; padding: 48px 40px;
+      width: 400px; max-width: 90vw;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06), 0 1px 4px rgba(0,0,0,0.04);
+      border: 1px solid var(--border);
+    }
+    .login-card h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin-bottom: 4px; }
+    .login-card .subtitle { font-size: 14px; color: var(--muted); margin-bottom: 32px; }
+    .login-tabs {
+      display: flex; gap: 0; margin-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .login-tabs button {
+      flex: 1; padding: 10px 0; border: none; background: transparent;
+      font-size: 14px; font-weight: 500; font-family: inherit; cursor: pointer;
+      color: var(--muted); border-bottom: 2px solid transparent;
+      transition: all 0.15s;
+    }
+    .login-tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+    .toast {
+      position: fixed; top: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 300; padding: 12px 24px; border-radius: 10px;
+      font-size: 14px; font-weight: 500; color: #fff;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+      animation: toastIn 0.3s ease;
+      pointer-events: none;
+    }
+    @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(-8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
+    .toast.success { background: #34c759; }
+    .toast.error { background: #ff3b30; }
+    .toast.info { background: var(--accent); }
+
+    .risk-chart { width: 100%; height: 260px; }
+    .risk-chart svg { width: 100%; height: 100%; }
+    .chart-legend { display: flex; gap: 20px; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted); }
+    .chart-legend span { display: flex; align-items: center; gap: 6px; }
+    .chart-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
+
+    .pagination { display: flex; align-items: center; justify-content: center; gap: 4px; margin-top: 20px; }
+    .pagination button {
+      min-width: 36px; height: 36px; border: 1px solid var(--border);
+      border-radius: 8px; background: var(--surface); color: var(--fg);
+      font-size: 13px; font-family: inherit; cursor: pointer;
+      transition: all 0.15s; display: grid; place-items: center;
+    }
+    .pagination button:hover { background: rgba(22,93,255,0.06); border-color: var(--accent); }
+    .pagination button.active { background: var(--accent); color: #fff; border-color: var(--accent); font-weight: 600; }
+    .pagination button:disabled { opacity: 0.3; cursor: default; }
+    .pagination .page-info { padding: 0 12px; font-size: 13px; color: var(--muted); }
+
+    .analysis-card {
+      background: var(--surface); border-radius: 12px;
+      padding: 20px 24px; border: 1px solid var(--border);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+      margin-bottom: 16px;
+    }
+    .analysis-card .score-ring {
+      width: 56px; height: 56px; border-radius: 50%;
+      display: grid; place-items: center; font-weight: 700; font-size: 18px;
+      letter-spacing: -0.02em; flex-shrink: 0;
+    }
+    .analysis-card .score-ring.danger { background: rgba(255,59,48,0.10); color: #cc2f28; }
+    .analysis-card .score-ring.medium { background: rgba(255,149,0,0.10); color: #cc7700; }
+    .analysis-card .score-ring.low { background: rgba(52,199,89,0.10); color: #1b8c3c; }
+
+    .ranking-list { list-style: none; }
+    .ranking-list li {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px 20px; border-bottom: 1px solid #f0f0f3;
+      transition: background 0.15s;
+    }
+    .ranking-list li:last-child { border-bottom: none; }
+    .ranking-list li:hover { background: rgba(22,93,255,0.02); }
+    .ranking-list .rank-num {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center;
+      font-size: 13px; font-weight: 700; flex-shrink: 0;
+    }
+    .ranking-list .rank-num.top { background: rgba(255,59,48,0.10); color: #cc2f28; }
+    .ranking-list .rank-num.mid { background: rgba(255,149,0,0.10); color: #cc7700; }
+    .ranking-list .rank-num.norm { background: rgba(0,0,0,0.04); color: var(--muted); }
+
+    .recommend-item {
+      display: flex; align-items: flex-start; gap: 12px;
+      padding: 14px 16px; border-radius: 10px;
+      background: rgba(22,93,255,0.03); border: 1px solid rgba(22,93,255,0.08);
+      margin-bottom: 8px;
+    }
+    .recommend-item .rec-icon {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: grid; place-items: center; flex-shrink: 0;
+      font-size: 14px; margin-top: 2px;
+    }
+    .recommend-item .rec-icon.high { background: rgba(255,59,48,0.10); }
+    .recommend-item .rec-icon.medium { background: rgba(255,149,0,0.10); }
+    .recommend-item .rec-icon.low { background: rgba(52,199,89,0.10); }
+
+    input[type="date"] {
+      padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 13px; font-family: inherit;
+      background: var(--surface); color: var(--fg); outline: none;
+    }
+    input[type="date"]:focus { border-color: var(--accent); }
+
+    .detail-table { width: 100%; border-collapse: collapse; }
+    .detail-table td { padding: 10px 14px; font-size: 14px; border-bottom: 1px solid #f0f0f3; }
+    .detail-table td:first-child { font-weight: 600; color: var(--muted); width: 100px; white-space: nowrap; }
+
+    .loading-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s infinite; }
+    @keyframes pulse { 0%,100%{opacity:0.3;} 50%{opacity:1;} }
+    .refresh-btn { width: 36px; height: 36px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); cursor: pointer; font-size: 18px; display: grid; place-items: center; transition: all 0.15s; color: var(--muted); }
+    .refresh-btn:hover { background: rgba(22,93,255,0.06); border-color: var(--accent); color: var(--accent); }
+    .refresh-btn.spinning { animation: spin 0.6s linear; color: var(--accent); border-color: var(--accent); background: rgba(22,93,255,0.06); }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+    @media (max-width: 1024px) {
+      .sidebar { width: 200px; min-width: 200px; }
+      .main-content { padding: 24px; }
+      .stat-card .value { font-size: 26px; }
+    }
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main-content { padding: 16px; }
+      .stat-grid { grid-template-columns: repeat(2, 1fr) !important; }
+      #view-ai-center > div:last-child { grid-template-columns: 1fr !important; }
+      .analysis-card { flex-direction: column; text-align: center; }
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">
+  <!-- ═══════════════════════════════════════
+       LOGIN SCREEN
+       ═══════════════════════════════════════ -->
+  <div v-if="!currentUser" class="login-screen">
+    <div class="login-card">
+      <h1>SSH Bastion</h1>
+      <p class="subtitle">堡垒机管理系统</p>
+
+      <div class="login-tabs">
+        <button :class="{active:loginTab==='password'}" @click="loginTab='password'">密码登录</button>
+        <button :class="{active:loginTab==='key'}" @click="loginTab='key'">密钥登录</button>
+      </div>
+
+      <!-- Password login -->
+      <div v-show="loginTab==='password'">
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <input class="input" type="text" v-model="loginForm.username" placeholder="用户名" autocomplete="username" @keydown.enter="focusLoginPass" />
+          <input class="input" type="password" v-model="loginForm.password" ref="loginPassRef" placeholder="密码" autocomplete="current-password" @keydown.enter="doLogin" />
+          <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px;border-radius:10px;" @click="doLogin" :disabled="loginLoading">
+            {{ loginLoading ? '登录中…' : '登录' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Key login -->
+      <div v-show="loginTab==='key'">
+        <div style="display:flex;flex-direction:column;gap:16px;">
+          <input class="input" type="text" v-model="loginForm.username" placeholder="用户名" />
+          <textarea class="input" v-model="loginForm.privateKey" placeholder="粘贴 SSH 私钥…" style="min-height:120px;font-family:var(--font-mono);font-size:12px;resize:vertical;"></textarea>
+          <button class="btn btn-primary" style="width:100%;justify-content:center;padding:13px;font-size:15px;border-radius:10px;" @click="doLogin">密钥登录</button>
+        </div>
+      </div>
+
+      <p style="text-align:center;margin-top:18px;">
+        <a href="javascript:void(0)" style="color:var(--accent);font-size:13px;" @click="openRegister">没有账号？邮箱注册</a>
+      </p>
+      <p style="text-align:center;margin-top:10px;font-size:12px;color:var(--muted);">测试账号 admin / 123456</p>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       APP SHELL
+       ═══════════════════════════════════════ -->
+  <div v-else class="app-shell">
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span class="dot"></span> SSH Bastion
+      </div>
+      <nav class="sidebar-nav">
+        <button :class="{active:currentView==='dashboard'}" @click="switchView('dashboard')">
+          <span class="icon">⊞</span> 仪表盘
+        </button>
+        <button :class="{active:currentView==='terminal'}" @click="switchView('terminal')">
+          <span class="icon">▸</span> 在线终端
+        </button>
+        <button :class="{active:currentView==='statistics'}" @click="switchView('statistics')">
+          <span class="icon">📊</span> 统计中心
+        </button>
+        <button :class="{active:currentView==='users'}" @click="switchView('users')">
+          <span class="icon">👤</span> 用户管理
+        </button>
+        <button :class="{active:currentView==='audit'}" @click="switchView('audit')">
+          <span class="icon">📋</span> 审计日志
+        </button>
+        <button :class="{active:currentView==='ai-center'}" @click="switchView('ai-center')">
+          <span class="icon">🛡</span> AI安全中心
+        </button>
+      </nav>
+      <div class="sidebar-footer">
+        <div class="user-row">
+          <div class="avatar">{{ sidebarAvatar }}</div>
+          <div>
+            <div style="font-weight:600;color:var(--fg);">{{ currentUser.username }}</div>
+            <div style="font-size:11px;">{{ currentUser.role || 'USER' }}</div>
+          </div>
+        </div>
+        <button class="btn btn-ghost btn-sm" style="margin-top:10px;width:100%;" @click="doLogout">退出登录</button>
+      </div>
+    </aside>
+
+    <!-- Main content -->
+    <main class="main-content">
+
+      <!-- ═══════════ DASHBOARD ═══════════ -->
+      <div v-show="currentView==='dashboard'">
+        <div class="section-header">
+          <div>
+            <h1>仪表盘</h1>
+            <p>系统概览 · 服务器列表</p>
+          </div>
+          <button class="refresh-btn" :class="{ spinning: refreshSpinning }" @click="manualRefresh()" title="刷新数据">🔄</button>
+        </div>
+
+        <!-- Stat cards -->
+        <div class="stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;">
+          <div class="stat-card" @click="showOnlineUsers" style="cursor:pointer;transition:all 0.15s;" @mouseenter="$event.target.style.boxShadow='0 4px 16px rgba(22,93,255,0.15)'" @mouseleave="$event.target.style.boxShadow=''">
+            <div class="label">在线用户 <span style="font-size:10px;color:var(--accent);">点击查看 ›</span></div>
+            <div class="value">{{ dashboardOverview.onlineNum || 0 }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">在线会话</div>
+            <div class="value">{{ dashboardOverview.onlineNum || 0 }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">服务器数量</div>
+            <div class="value">{{ servers.length }}</div>
+          </div>
+          <div class="stat-card">
+            <div class="label">今日命令</div>
+            <div class="value" style="font-variant-numeric:tabular-nums;">{{ (dashboardOverview.todayCmdNum || 0).toLocaleString() }}</div>
+          </div>
+        </div>
+
+        <!-- Search + filter -->
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;">
+          <div class="search-bar" style="flex:1;">
+            <span style="font-size:16px;color:var(--muted);">🔍</span>
+            <input type="text" v-model="serverSearch" placeholder="搜索服务器名称或 IP…" />
+          </div>
+          <select v-model="serverStatusFilter" style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface);outline:none;color:var(--fg);">
+            <option value="">全部状态</option>
+            <option value="true">在线</option>
+            <option value="false">离线</option>
+          </select>
+        </div>
+
+        <!-- Server table -->
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>服务器名称</th>
+              <th>IP 地址</th>
+              <th>状态</th>
+              <th>在线人数</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="s in filteredServers" :key="s.id">
+              <td style="font-weight:600;">{{ s.serverName }}</td>
+              <td style="font-family:var(--font-mono);font-size:13px;">{{ s.host }}</td>
+              <td>
+                <span class="badge" :class="s.online ? 'online' : 'offline'">
+                  <span class="badge-dot"></span>{{ s.online ? '在线' : '离线' }}
+                </span>
+              </td>
+              <td>{{ s.connectionCount || 0 }}</td>
+              <td>
+                <button class="btn btn-primary btn-sm" @click="quickConnect(s)" :disabled="!s.online" :style="!s.online ? 'opacity:0.4;cursor:not-allowed;' : ''">连接</button>
+              </td>
+            </tr>
+            <tr v-if="filteredServers.length===0">
+              <td colspan="5" style="text-align:center;color:var(--muted);padding:40px;">暂无服务器数据</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══════════ TERMINAL ═══════════ -->
+      <div v-show="currentView==='terminal'">
+        <div class="section-header">
+          <div>
+            <h1>在线终端</h1>
+            <p>{{ terminalServerLabel }}</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <select v-model="terminalServerId" style="padding:9px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface);outline:none;color:var(--fg);min-width:180px;">
+              <option :value="null">选择服务器…</option>
+              <option v-for="s in servers" :key="s.id" :value="s.id" :disabled="!s.online">{{ s.serverName }} ({{ s.host }})</option>
+            </select>
+            <button class="btn btn-primary btn-sm" @click="connectTerminal">连接</button>
+            <button class="btn btn-ghost btn-sm" @click="disconnectTerminal">断开</button>
+          </div>
+        </div>
+
+        <div class="terminal-wrapper">
+          <div class="terminal-header">
+            <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+            <span class="title">{{ terminalTitle }}</span>
+          </div>
+          <div class="terminal-body" ref="terminalBodyRef">
+            <div class="line info">SSH Bastion Terminal v1.0</div>
+            <div class="line info">选择服务器并点击"连接"开始会话。</div>
+            <div class="line info">输入 'help' 查看可用命令，'clear' 清屏。</div>
+            <div class="line">&nbsp;</div>
+            <div v-for="(line, i) in terminalOutput" :key="i" :class="'line ' + line.cls" v-html="line.text"></div>
+          </div>
+          <div class="terminal-input-row">
+            <span class="prompt-symbol">{{ terminalPrompt }}</span>
+            <input type="text" v-model="terminalInput" :disabled="!terminalConnected" placeholder="输入命令…" @keydown="handleTerminalKey" ref="terminalInputRef" />
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ STATISTICS ═══════════ -->
+      <div v-show="currentView==='statistics'">
+        <div class="section-header">
+          <div>
+            <h1>统计中心</h1>
+            <p>{{ statsMode === 'personal' ? '个人统计' : '全局统计' }}</p>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div class="tab-switcher">
+              <button :class="{active:statsMode==='personal'}" @click="switchStatsMode('personal')">个人统计</button>
+              <button :class="{active:statsMode==='global'}" @click="switchStatsMode('global')">全局统计</button>
+            </div>
+            <button class="refresh-btn" :class="{ spinning: refreshSpinning }" @click="manualRefresh()" title="刷新数据">🔄</button>
+          </div>
+        </div>
+
+        <!-- Personal stats -->
+        <div v-if="statsMode==='personal'">
+          <div class="stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;">
+            <div class="stat-card">
+              <div class="label">累计命令数</div>
+              <div class="value">{{ (personalStats.totalCommands || 0).toLocaleString() }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">今日命令数</div>
+              <div class="value">{{ (personalStats.todayCommands || 0).toLocaleString() }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">危险命令总数</div>
+              <div class="value" :style="(personalStats.totalDangerCommands||0) > 5 ? 'color:#ff3b30;' : ''">{{ personalStats.totalDangerCommands || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">今日危险命令</div>
+              <div class="value" :style="(personalStats.todayDangerCommands||0) > 0 ? 'color:#ff3b30;' : ''">{{ personalStats.todayDangerCommands || 0 }}</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Global stats -->
+        <div v-if="statsMode==='global'">
+          <div class="stat-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;">
+            <div class="stat-card">
+              <div class="label">总用户数</div>
+              <div class="value">{{ globalStats.userCount || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">总服务器数</div>
+              <div class="value">{{ globalStats.serverCount || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">在线会话数</div>
+              <div class="value">{{ globalStats.sessionCount || 0 }}</div>
+            </div>
+            <div class="stat-card">
+              <div class="label">总命令数</div>
+              <div class="value">{{ (globalStats.totalCommandCount || 0).toLocaleString() }}</div>
+            </div>
+          </div>
+
+          <!-- Risk trend chart -->
+          <div class="stat-card" style="padding:24px;">
+            <div style="font-size:15px;font-weight:600;margin-bottom:16px;color:var(--fg);">风险趋势 · 近7天</div>
+            <div class="risk-chart" v-html="riskChartSvg"></div>
+            <div class="chart-legend">
+              <span><span class="dot" style="background:#ff3b30;"></span> 高风险</span>
+              <span><span class="dot" style="background:#ff9500;"></span> 中风险</span>
+              <span><span class="dot" style="background:#34c759;"></span> 低风险</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════ USER MANAGEMENT ═══════════ -->
+      <div v-show="currentView==='users'">
+        <div class="section-header">
+          <div>
+            <h1>用户管理</h1>
+            <p>系统用户列表 · 新增用户</p>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button class="refresh-btn" :class="{ spinning: refreshSpinning }" @click="manualRefresh()" title="刷新数据">🔄</button>
+            <button class="btn btn-primary btn-sm" @click="openAddUser">＋ 新增用户</button>
+          </div>
+        </div>
+
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>用户名</th>
+              <th>角色</th>
+              <th>状态</th>
+              <th>创建时间</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in userList" :key="u.id">
+              <td>{{ u.id }}</td>
+              <td style="font-weight:600;">{{ u.username }}</td>
+              <td><span class="badge" :class="roleBadgeClass(u.role)">{{ roleLabel(u.role) }}</span></td>
+              <td><span class="badge" :class="u.status===1 ? 'online' : 'offline'"><span class="badge-dot"></span>{{ u.status===1 ? '启用' : '禁用' }}</span></td>
+              <td style="font-size:13px;color:var(--muted);">{{ u.createTime }}</td>
+            </tr>
+            <tr v-if="userList.length===0">
+              <td colspan="5" style="text-align:center;color:var(--muted);padding:40px;">暂无用户数据</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- ═══════════ AUDIT LOG ═══════════ -->
+      <div v-show="currentView==='audit'">
+        <div class="section-header">
+          <div>
+            <h1>审计日志</h1>
+            <p>共 {{ auditTotal }} 条记录</p>
+          </div>
+          <button class="refresh-btn" :class="{ spinning: refreshSpinning }" @click="manualRefresh()" title="刷新数据">🔄</button>
+        </div>
+
+        <!-- Filters -->
+        <div style="display:flex;gap:12px;align-items:center;margin-bottom:20px;flex-wrap:wrap;">
+          <div class="search-bar" style="flex:1;min-width:180px;">
+            <span style="font-size:16px;color:var(--muted);">🔍</span>
+            <input type="text" v-model="auditFilters.username" placeholder="搜索用户名…" @input="onAuditFilterChange" />
+          </div>
+          <input type="date" v-model="auditFilters.dateFrom" @change="onAuditFilterChange" style="min-width:140px;" title="开始日期" />
+          <span style="color:var(--muted);font-size:13px;">至</span>
+          <input type="date" v-model="auditFilters.dateTo" @change="onAuditFilterChange" style="min-width:140px;" title="结束日期" />
+          <select v-model="auditFilters.riskLevel" @change="onAuditFilterChange" style="padding:10px 14px;border:1px solid var(--border);border-radius:10px;font-size:14px;font-family:inherit;background:var(--surface);outline:none;color:var(--fg);">
+            <option value="">全部风险等级</option>
+            <option value="HIGH">高风险</option>
+            <option value="MEDIUM">中风险</option>
+            <option value="LOW">低风险</option>
+          </select>
+        </div>
+
+        <!-- Audit table -->
+        <div style="overflow-x:auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>用户名</th>
+                <th>命令</th>
+                <th>服务器</th>
+                <th>时间</th>
+                <th>风险等级</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="log in auditLogs" :key="log.id">
+                <td style="font-weight:600;">{{ log.username }}</td>
+                <td style="font-family:var(--font-mono);font-size:13px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" :title="log.command">{{ log.command }}</td>
+                <td style="font-family:var(--font-mono);font-size:13px;color:var(--muted);">{{ log.serverHost || '-' }}</td>
+                <td style="font-size:13px;color:var(--muted);">{{ log.createTime }}</td>
+                <td>
+                  <span class="badge" :class="(log.riskLevel||'LOW').toLowerCase()">{{ riskLabel(log.riskLevel) }}</span>
+                </td>
+                <td><button class="btn btn-ghost btn-sm" @click="viewAuditDetail(log)">详情</button></td>
+              </tr>
+              <tr v-if="auditLogs.length===0">
+                <td colspan="6" style="text-align:center;color:var(--muted);padding:40px;">暂无审计日志</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Pagination -->
+        <div class="pagination" v-if="totalAuditPages > 1">
+          <button :disabled="auditPage <= 1" @click="goAuditPage(auditPage - 1)">‹</button>
+          <template v-for="p in displayPages" :key="p">
+            <span v-if="p==='…'" class="page-info">…</span>
+            <button v-else :class="{active: p === auditPage}" @click="goAuditPage(p)">{{ p }}</button>
+          </template>
+          <button :disabled="auditPage >= totalAuditPages" @click="goAuditPage(auditPage + 1)">›</button>
+          <span class="page-info">第 {{ auditPage }}/{{ totalAuditPages }} 页</span>
+        </div>
+      </div>
+
+      <!-- ═══════════ AI SECURITY CENTER ═══════════ -->
+      <div v-show="currentView==='ai-center'">
+        <div class="section-header">
+          <div>
+            <h1>AI 安全中心</h1>
+            <p>命令风险分析 · 异常检测 · 策略推荐</p>
+          </div>
+          <button class="refresh-btn" :class="{ spinning: refreshSpinning }" @click="manualRefresh()" title="刷新数据">🔄</button>
+        </div>
+
+        <!-- Command analyzer -->
+        <div class="stat-card" style="margin-bottom:32px;">
+          <div style="font-size:15px;font-weight:600;margin-bottom:4px;color:var(--fg);">🔍 命令风险分析</div>
+          <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">输入命令进行AI安全分析，评估风险等级</p>
+          <div style="display:flex;gap:10px;">
+            <input class="input" type="text" v-model="aiCommandInput" placeholder="输入待分析的命令… e.g. rm -rf /tmp/test" style="font-family:var(--font-mono);font-size:13px;" @keydown.enter="analyzeCommand" />
+            <button class="btn btn-primary" @click="analyzeCommand" :disabled="aiAnalyzing" style="white-space:nowrap;">{{ aiAnalyzing ? '分析中…' : '分析' }}</button>
+          </div>
+          <div v-if="aiAnalysisResult" style="margin-top:16px;">
+            <div class="analysis-card" style="display:flex;align-items:center;gap:20px;">
+              <div class="score-ring" :class="aiAnalysisResult.riskLevel === 'HIGH' ? 'danger' : aiAnalysisResult.riskLevel === 'MEDIUM' ? 'medium' : 'low'">{{ aiAnalysisResult.score }}</div>
+              <div style="flex:1;">
+                <div style="font-family:var(--font-mono);font-size:14px;color:var(--fg);margin-bottom:6px;">{{ aiAnalysisResult.command }}</div>
+                <span class="badge" :class="(aiAnalysisResult.riskLevel||'low').toLowerCase()">{{ riskLabel(aiAnalysisResult.riskLevel) }}</span>
+                <div style="font-size:13px;color:var(--muted);margin-top:8px;line-height:1.5;">{{ aiAnalysisResult.reason }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Two-column: ranking + recommendations -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;">
+          <!-- Risk ranking -->
+          <div class="stat-card" style="padding:0;overflow:hidden;">
+            <div style="padding:20px 24px 12px;font-size:15px;font-weight:600;color:var(--fg);border-bottom:1px solid var(--border);">🏆 风险排行榜</div>
+            <ul class="ranking-list">
+              <li v-for="(r, i) in aiRanking" :key="r.username">
+                <span class="rank-num" :class="i < 2 ? 'top' : i < 4 ? 'mid' : 'norm'">{{ i + 1 }}</span>
+                <span style="flex:1;font-weight:600;">{{ r.username }}</span>
+                <span style="font-size:13px;color:var(--muted);">危险操作 {{ r.dangerCount }} 次</span>
+                <div style="width:80px;height:6px;border-radius:3px;background:#f0f0f3;overflow:hidden;">
+                  <div :style="{width: Math.min(100, r.dangerCount * 6) + '%', height:'100%', borderRadius:'3px', background: i < 2 ? '#ff3b30' : i < 4 ? '#ff9500' : '#34c759'}"></div>
+                </div>
+              </li>
+              <li v-if="aiRanking.length===0" style="text-align:center;color:var(--muted);padding:40px;">暂无数据</li>
+            </ul>
+          </div>
+
+          <!-- AI recommendations -->
+          <div class="stat-card">
+            <div style="font-size:15px;font-weight:600;margin-bottom:16px;color:var(--fg);">💡 AI 策略建议</div>
+            <div class="recommend-item" v-for="(rec, i) in aiRecommendations" :key="i">
+              <div class="rec-icon" :class="rec.level.toLowerCase()"><span style="font-size:12px;">{{ rec.level === 'HIGH' ? '🔴' : rec.level === 'MEDIUM' ? '🟠' : '🟢' }}</span></div>
+              <div style="flex:1;">
+                <span class="badge" :class="rec.level.toLowerCase()" style="margin-bottom:6px;display:inline-flex;">{{ rec.level === 'HIGH' ? '高优先级' : rec.level === 'MEDIUM' ? '中优先级' : '低优先级' }}</span>
+                <div style="font-size:14px;color:var(--fg);margin-top:4px;line-height:1.5;">{{ rec.content }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       AUDIT DETAIL MODAL
+       ═══════════════════════════════════════ -->
+  <div v-if="auditDetailVisible" class="modal-overlay" @click.self="auditDetailVisible=false">
+    <div class="modal">
+      <h2>审计日志详情</h2>
+      <table class="detail-table" v-if="auditDetail">
+        <tr><td>用户名</td><td>{{ auditDetail.username }}</td></tr>
+        <tr><td>命令</td><td style="font-family:var(--font-mono);font-size:13px;">{{ auditDetail.command }}</td></tr>
+        <tr><td>服务器</td><td>{{ auditDetail.serverHost || '-' }}</td></tr>
+        <tr><td>客户端IP</td><td>{{ auditDetail.clientIp || '-' }}</td></tr>
+        <tr><td>执行时间</td><td>{{ auditDetail.createTime }}</td></tr>
+        <tr><td>风险等级</td><td><span class="badge" :class="(auditDetail.riskLevel||'LOW').toLowerCase()">{{ riskLabel(auditDetail.riskLevel) }}</span></td></tr>
+        <tr><td>状态</td><td>{{ auditStatusLabel(auditDetail.status) }}</td></tr>
+      </table>
+      <div style="text-align:right;margin-top:20px;">
+        <button class="btn btn-ghost" @click="auditDetailVisible=false">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       ONLINE USERS MODAL
+       ═══════════════════════════════════════ -->
+  <div v-if="onlineUsersVisible" class="modal-overlay" @click.self="onlineUsersVisible=false">
+    <div class="modal" style="width:700px;max-width:95vw;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;">
+        <h2 style="margin-bottom:0;">在线用户详情</h2>
+        <span class="badge online" style="font-size:13px;"><span class="badge-dot"></span>{{ onlineUsers.length }} 人在线</span>
+      </div>
+
+      <div v-if="onlineUsers.length === 0" style="text-align:center;color:var(--muted);padding:48px;">
+        暂无在线用户
+      </div>
+
+      <table class="data-table" v-else>
+        <thead>
+          <tr>
+            <th>用户名</th>
+            <th>客户端IP</th>
+            <th>连接服务器</th>
+            <th>登录时间</th>
+            <th>在线时长</th>
+            <th v-if="currentUser && currentUser.role === 'admin'">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="u in onlineUsers" :key="u.sessionId">
+            <td style="font-weight:600;">
+              {{ u.username }}
+              <span v-if="u.role" style="font-size:11px;color:var(--muted);margin-left:4px;">({{ u.role }})</span>
+            </td>
+            <td style="font-family:var(--font-mono);font-size:13px;">{{ u.clientIp || '-' }}</td>
+            <td>
+              <div style="font-weight:500;">{{ u.serverName || '-' }}</div>
+              <div style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">{{ u.serverHost || '' }}</div>
+            </td>
+            <td style="font-size:13px;color:var(--muted);">{{ u.loginTime || '-' }}</td>
+            <td style="font-size:13px;">{{ formatDuration(u.durationMinutes) }}</td>
+            <td v-if="currentUser && currentUser.role === 'admin'">
+              <button class="btn btn-ghost btn-sm" style="color:#ff3b30;border-color:rgba(255,59,48,0.3);" @click="kickUser(u)">踢人</button>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div style="text-align:right;margin-top:20px;">
+        <button class="btn btn-primary btn-sm" @click="loadOnlineUsers()" :disabled="onlineUsersLoading">{{ onlineUsersLoading ? '刷新中…' : '刷新' }}</button>
+        <button class="btn btn-ghost btn-sm" style="margin-left:8px;" @click="onlineUsersVisible=false">关闭</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       ADD USER MODAL
+       ═══════════════════════════════════════ -->
+  <div v-if="addUserVisible" class="modal-overlay" @click.self="addUserVisible=false">
+    <div class="modal" style="width:480px;max-width:95vw;">
+      <h2 style="margin-bottom:20px;">新增用户</h2>
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <!-- 用户名：输完(失焦)即查重 -->
+        <div>
+          <label class="form-label">用户名</label>
+          <input class="input" type="text" v-model="addUserForm.username" placeholder="请输入用户名"
+                 @blur="checkUsernameExists" @input="onUsernameInput" />
+          <div v-if="usernameCheck" style="margin-top:6px;font-size:12.5px;" :style="usernameCheck.ok ? 'color:#1b8c3c;' : 'color:#cc2f28;'">
+            {{ usernameCheck.ok ? '✔ ' : '✘ ' }}{{ usernameCheck.msg }}
+          </div>
+          <div v-if="usernameChecking" style="margin-top:6px;font-size:12.5px;color:var(--muted);">正在检查用户名…</div>
+        </div>
+        <div>
+          <label class="form-label">密码</label>
+          <input class="input" type="password" v-model="addUserForm.password" placeholder="请输入密码" />
+        </div>
+        <div>
+          <label class="form-label">角色</label>
+          <select class="input" v-model="addUserForm.role" style="cursor:pointer;">
+            <option value="guest">游客 (guest)</option>
+            <option value="ops">运维 (ops)</option>
+          </select>
+          <div style="margin-top:6px;font-size:12px;color:var(--muted);">注：新增用户仅限 guest / ops，管理员账号不在本入口创建</div>
+        </div>
+        <div>
+          <label class="form-label">管理员验权密码</label>
+          <input class="input" type="password" v-model="addUserForm.adminPassword" placeholder="请输入管理员验权密码" />
+        </div>
+      </div>
+      <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:24px;">
+        <button class="btn btn-ghost btn-sm" @click="addUserVisible=false">取消</button>
+        <button class="btn btn-primary btn-sm" @click="submitAddUser" :disabled="addUserLoading">{{ addUserLoading ? '提交中…' : '确认新增' }}</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       REGISTER MODAL（两步：验证码 → 填资料）
+       ═══════════════════════════════════════ -->
+  <div v-if="registerVisible" class="modal-overlay" @click.self="closeRegister">
+    <div class="modal" style="width:460px;max-width:95vw;">
+      <h2 style="margin-bottom:20px;">邮箱注册</h2>
+
+      <!-- Step 1：邮箱 + 验证码 -->
+      <div v-if="registerStep === 1" style="display:flex;flex-direction:column;gap:16px;">
+        <div>
+          <label class="form-label">邮箱</label>
+          <input class="input" type="text" v-model="registerForm.email" placeholder="请输入邮箱"
+                 @blur="checkRegisterEmail" @input="onRegisterEmailInput" />
+          <div v-if="registerEmailCheck" style="margin-top:6px;font-size:12.5px;" :style="registerEmailCheck.ok ? 'color:#1b8c3c;' : 'color:#cc2f28;'">
+            {{ registerEmailCheck.ok ? '✔ ' : '✘ ' }}{{ registerEmailCheck.msg }}
+          </div>
+        </div>
+        <div>
+          <label class="form-label">验证码</label>
+          <div style="display:flex;gap:8px;">
+            <input class="input" type="text" v-model="registerForm.code" placeholder="6位验证码" style="flex:1;" @keydown.enter="submitRegisterStep1" />
+            <button class="btn btn-ghost btn-sm" style="white-space:nowrap;min-width:110px;"
+                    @click="sendRegisterCode" :disabled="codeSending || codeCountdown > 0">
+              {{ codeCountdown > 0 ? codeCountdown + 's后重发' : (codeSending ? '发送中…' : '获取验证码') }}
+            </button>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button class="btn btn-ghost btn-sm" @click="closeRegister">取消</button>
+          <button class="btn btn-primary btn-sm" @click="submitRegisterStep1" :disabled="registerLoading">
+            {{ registerLoading ? '校验中…' : '下一步' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- Step 2：填写个人信息 -->
+      <div v-else style="display:flex;flex-direction:column;gap:16px;">
+        <div style="font-size:12.5px;color:var(--muted);padding:10px 12px;background:rgba(0,0,0,0.04);border-radius:8px;">
+          验证通过 ✔ &nbsp;<b style="color:var(--fg);">{{ registerForm.email }}</b>
+        </div>
+        <div>
+          <label class="form-label">用户名</label>
+          <input class="input" type="text" v-model="registerForm.username" placeholder="请输入用户名"
+                 @blur="checkRegisterUsername" @input="onRegisterUsernameInput" />
+          <div v-if="registerUsernameCheck" style="margin-top:6px;font-size:12.5px;" :style="registerUsernameCheck.ok ? 'color:#1b8c3c;' : 'color:#cc2f28;'">
+            {{ registerUsernameCheck.ok ? '✔ ' : '✘ ' }}{{ registerUsernameCheck.msg }}
+          </div>
+          <div v-if="registerUsernameChecking" style="margin-top:6px;font-size:12.5px;color:var(--muted);">正在检查用户名…</div>
+        </div>
+        <div>
+          <label class="form-label">密码</label>
+          <input class="input" type="password" v-model="registerForm.password" placeholder="请输入密码" @keydown.enter="submitRegisterStep2" />
+        </div>
+        <div style="font-size:12px;color:var(--muted);">注册账号默认游客 (guest) 角色，仅可查看。</div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:8px;">
+          <button class="btn btn-ghost btn-sm" @click="registerStep = 1">上一步</button>
+          <button class="btn btn-primary btn-sm" @click="submitRegisterStep2" :disabled="registerLoading">
+            {{ registerLoading ? '注册中…' : '完成注册' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div style="position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:300;display:flex;flex-direction:column;gap:8px;pointer-events:none;">
+    <div v-for="(t, i) in toasts" :key="i" class="toast" :class="t.type">{{ t.msg }}</div>
+  </div>
+</div>
+
+<!-- Vue 3 CDN -->
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+<script>
+const { createApp, ref, reactive, computed, watch, onMounted, nextTick } = Vue;
+
+// ═══════════ API Base URL ═══════════
+const API_BASE = '/api';
+
+// ═══════════ Terminal simulation ═══════════
+const TERMINAL_SIM = {
+  'help':    '可用命令: help, whoami, date, uptime, ls, df, free, ps, netstat, last, uname, clear',
+  'whoami':  'root',
+  'date':    new Date().toString(),
+  'uptime':  ' 16:42:23 up 45 days,  3:12,  2 users,  load average: 0.08, 0.12, 0.09',
+  'ls':      'bin  boot  dev  etc  home  lib  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var',
+  'df':      'Filesystem     1K-blocks     Used Available Use% Mounted on\n/dev/vda1       51474044 18472836  30378784  38% /\ntmpfs             498124        0    498124   0% /dev/shm',
+  'free':    '              total        used        free      shared  buff/cache   available\nMem:         996248      312456      423892        1234      259900      612340\nSwap:       1048572           0     1048572',
+  'ps':      '  PID TTY          TIME CMD\n    1 ?        00:00:02 systemd\n  342 ?        00:00:01 sshd\n  567 pts/0    00:00:00 bash\n  589 pts/0    00:00:00 ps',
+  'netstat': 'Active Internet connections\nProto Recv-Q Send-Q Local Address           Foreign Address         State\ntcp        0      0 0.0.0.0:22              0.0.0.0:*               LISTEN\ntcp        0      0 0.0.0.0:80              0.0.0.0:*               LISTEN',
+  'last':    'root     pts/0        123.56.106.44    Fri May 30 15:20   still logged in\nadmin    pts/1        47.92.158.37     Thu May 29 18:45 - 19:30  (00:45)',
+  'uname':   'Linux ubuntu-01 5.15.0-91-generic #101-Ubuntu SMP Tue Nov 14 13:30:00 UTC 2026 x86_64 GNU/Linux',
+};
+
+createApp({
+  data() {
+    return {
+      // ── Auth ──
+      currentUser: null,
+      loginForm: { username: '', password: '', privateKey: '' },
+      loginTab: 'password',
+      loginLoading: false,
+
+      // ── Navigation ──
+      currentView: 'dashboard',
+
+      // ── Dashboard ──
+      dashboardOverview: {},
+      servers: [],
+      serverSearch: '',
+      serverStatusFilter: '',
+
+      // ── Online Users ──
+      onlineUsers: [],
+      onlineUsersVisible: false,
+      onlineUsersLoading: false,
+
+      // ── Terminal ──
+      terminalConnected: false,
+      terminalSessionId: null,
+      terminalServerId: null,
+      terminalInput: '',
+      terminalOutput: [],
+      terminalServerLabel: '未连接服务器',
+      terminalTitle: 'SSH Terminal · 未连接',
+      terminalPrompt: '$',
+      commandHistory: [],
+      historyIdx: -1,
+
+      // ── Statistics ──
+      statsMode: 'personal',
+      personalStats: {},
+      globalStats: {},
+
+      // ── Audit ──
+      auditLogs: [],
+      auditTotal: 0,
+      auditPage: 1,
+      auditPageSize: 8,
+      auditFilters: { username: '', dateFrom: '', dateTo: '', riskLevel: '' },
+      auditTimer: null,
+      auditDetail: null,
+      auditDetailVisible: false,
+
+      // ── AI Center ──
+      aiCommandInput: '',
+      aiAnalysisResult: null,
+      aiAnalyzing: false,
+      aiRanking: [],
+      aiRecommendations: [],
+
+      // ── Toast ──
+      toasts: [],
+
+      // ── Risk trend ──
+      riskTrendData: { dates: [], high: [], medium: [], low: [] },
+
+      // ── User Management ──
+      userList: [],
+      addUserVisible: false,
+      addUserLoading: false,
+      addUserForm: { username: '', password: '', role: 'guest', adminPassword: '' },
+      usernameCheck: null,          // { ok: boolean, msg: string } 失焦查重结果
+      usernameChecking: false,      // 查重请求进行中
+      usernameCheckingValue: '',    // 正在查重的用户名（防并发重复请求）
+      usernameCheckTimer: null,     // 防抖 timer
+      usernameCheckedValue: '',     // 上次已查过的用户名（避免重复请求）
+
+      // ── Register（邮箱验证码两步注册）──
+      registerVisible: false,
+      registerStep: 1,              // 1=验证码 2=填资料
+      registerLoading: false,
+      codeSending: false,
+      codeCountdown: 0,             // 重发倒计时秒数
+      registerCodeTimer: null,
+      registerForm: { email: '', code: '', username: '', password: '' },
+      registerEmailCheck: null,     // { ok, msg } 邮箱失焦查重结果
+      registerUsernameCheck: null,  // { ok, msg } 用户名失焦查重结果
+      registerUsernameChecking: false,
+      registerUsernameCheckingValue: '',
+      registerUsernameCheckTimer: null,
+      registerUsernameCheckedValue: '',
+
+      // ── Refresh ──
+      refreshTimer: null,
+      refreshSpinning: false,
+    };
+  },
+
+  computed: {
+    sidebarAvatar() {
+      return this.currentUser ? this.currentUser.username.charAt(0).toUpperCase() : 'U';
+    },
+
+    filteredServers() {
+      let list = this.servers;
+      const q = this.serverSearch.toLowerCase();
+      if (q) {
+        list = list.filter(s =>
+          (s.serverName || '').toLowerCase().includes(q) ||
+          (s.host || '').toLowerCase().includes(q)
+        );
+      }
+      if (this.serverStatusFilter !== '') {
+        const online = this.serverStatusFilter === 'true';
+        list = list.filter(s => s.online === online);
+      }
+      return list;
+    },
+
+    totalAuditPages() {
+      return Math.ceil(this.auditTotal / this.auditPageSize) || 1;
+    },
+
+    displayPages() {
+      const total = this.totalAuditPages;
+      const current = this.auditPage;
+      const pages = [];
+      if (total <= 9) {
+        for (let i = 1; i <= total; i++) pages.push(i);
+      } else {
+        for (let i = 1; i <= total; i++) {
+          if (i <= 3 || i >= total - 2 || (i >= current - 1 && i <= current + 1)) {
+            pages.push(i);
+          } else if (pages[pages.length - 1] !== '…') {
+            pages.push('…');
+          }
+        }
+      }
+      return pages;
+    },
+
+    riskChartSvg() {
+      const d = this.riskTrendData;
+      if (!d.dates || d.dates.length === 0) return '<div style="text-align:center;color:var(--muted);padding:60px;">暂无趋势数据</div>';
+
+      const w = 700, h = 240;
+      const pad = { top: 16, right: 20, bottom: 32, left: 40 };
+      const pw = w - pad.left - pad.right;
+      const ph = h - pad.top - pad.bottom;
+      const n = d.dates.length;
+
+      const lowMax = Math.max(...(d.low || [1])) * 1.1;
+      const y = v => pad.top + ph * (1 - v / lowMax);
+      const x = i => pad.left + (pw / Math.max(1, n - 1)) * i;
+
+      const lines = [
+        { data: d.high || [], color: '#ff3b30' },
+        { data: d.medium || [], color: '#ff9500' },
+        { data: d.low || [], color: '#34c759' },
+      ];
+
+      let svg = `<svg viewBox="0 0 ${w} ${h}" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:100%;">`;
+
+      // Y axis
+      const steps = 4;
+      for (let i = 0; i <= steps; i++) {
+        const val = Math.round(lowMax * (steps - i) / steps);
+        const yy = pad.top + (ph / steps) * i;
+        svg += `<text x="${pad.left - 8}" y="${yy + 4}" text-anchor="end" font-size="10" fill="#aeaeb2" font-family="SF Mono,monospace">${val}</text>`;
+        if (i < steps) {
+          svg += `<line x1="${pad.left}" y1="${yy}" x2="${w - pad.right}" y2="${yy}" stroke="#f0f0f3" stroke-width="1" />`;
+        }
+      }
+
+      svg += `<line x1="${pad.left}" y1="${pad.top}" x2="${pad.left}" y2="${h - pad.bottom}" stroke="#e5e5ea" stroke-width="1" />`;
+      svg += `<line x1="${pad.left}" y1="${h - pad.bottom}" x2="${w - pad.right}" y2="${h - pad.bottom}" stroke="#e5e5ea" stroke-width="1" />`;
+
+      // Lines
+      lines.forEach(L => {
+        const pts = (L.data || []).map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(' ');
+        svg += `<path d="${pts}" fill="none" stroke="${L.color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />`;
+      });
+
+      // Dots
+      lines.forEach(L => {
+        (L.data || []).forEach((v, i) => {
+          svg += `<circle cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="3" fill="${L.color}" />`;
+        });
+      });
+
+      // X labels
+      (d.dates || []).forEach((dt, i) => {
+        svg += `<text x="${x(i).toFixed(1)}" y="${h - 6}" text-anchor="middle" font-size="10" fill="#aeaeb2" font-family="SF Mono,monospace">${dt}</text>`;
+      });
+
+      svg += '</svg>';
+      return svg;
+    },
+  },
+
+  methods: {
+    // ═══════════ API helpers ═══════════
+    _apiHeaders() {
+      const headers = {};
+      if (this.token) {
+        headers['authorization'] = this.token;
+      }
+      return headers;
+    },
+
+    async apiGet(path, params = {}) {
+      try {
+        const cleanParams = {};
+        Object.entries(params).forEach(([k, v]) => {
+          if (v !== null && v !== undefined && v !== '') cleanParams[k] = v;
+        });
+        const query = new URLSearchParams(cleanParams).toString();
+        const url = `${API_BASE}${path}${query ? '?' + query : ''}`;
+        const res = await fetch(url, { headers: this._apiHeaders() });
+        if (!res.ok && res.status === 401) {
+          this.showToast('登录已过期，请重新登录', 'error');
+          this.doLogout();
+          return { success: false, errorMsg: '未授权' };
+        }
+        return await res.json();
+      } catch (e) {
+        console.error('API GET error:', path, e);
+        return { success: false, errorMsg: '网络请求失败: ' + e.message };
+      }
+    },
+
+    async apiPost(path, body = {}) {
+      try {
+        const res = await fetch(`${API_BASE}${path}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...this._apiHeaders() },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok && res.status === 401) {
+          this.showToast('登录已过期，请重新登录', 'error');
+          this.doLogout();
+          return { success: false, errorMsg: '未授权' };
+        }
+        return await res.json();
+      } catch (e) {
+        console.error('API POST error:', path, e);
+        return { success: false, errorMsg: '网络请求失败: ' + e.message };
+      }
+    },
+
+    // ═══════════ Toast ═══════════
+    showToast(msg, type = 'info') {
+      this.toasts.push({ msg, type });
+      setTimeout(() => { this.toasts.shift(); }, 2500);
+    },
+
+    // ═══════════ Auth ═══════════
+    focusLoginPass() {
+      this.$refs.loginPassRef?.focus();
+    },
+
+    async doLogin() {
+      const username = this.loginForm.username.trim();
+      const password = this.loginForm.password.trim();
+      if (!username || !password) {
+        this.showToast('请输入用户名和密码', 'error');
+        return;
+      }
+      this.loginLoading = true;
+      try {
+        const res = await this.apiPost('/auth/login', { username, password });
+        if (res.success) {
+          // ⚠️ token 必须先设置，后续请求才能带 authorization 头
+          this.token = res.data;
+          this.currentUser = { username, role: 'USER' };
+          // 持久化到 localStorage，防止刷新丢失
+          localStorage.setItem('token', res.data);
+          localStorage.setItem('user', JSON.stringify(this.currentUser));
+          this.showToast('登录成功', 'success');
+          // Try to get user details for role
+          try {
+            const userRes = await this.apiGet('/user/list');
+            if (userRes.success && userRes.data) {
+              const found = userRes.data.find(u => u.username === username);
+              if (found) { this.currentUser.role = found.role || 'USER'; localStorage.setItem('user', JSON.stringify(this.currentUser)); }
+            }
+          } catch (e) { /* ignore */ }
+          this.loadDashboard();
+          this.loadServers();
+        } else {
+          this.showToast(res.errorMsg || '登录失败', 'error');
+        }
+      } catch (e) {
+        this.showToast('登录请求失败', 'error');
+      }
+      this.loginLoading = false;
+    },
+
+    async doLogout() {
+      this.stopPolling();
+      try { await this.apiPost('/auth/logout'); } catch (e) { /* ignore */ }
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      this.currentUser = null;
+      this.token = null;
+      this.terminalConnected = false;
+      this.terminalSessionId = null;
+      this.terminalOutput = [];
+      this.terminalServerLabel = '未连接服务器';
+      this.terminalTitle = 'SSH Terminal · 未连接';
+      this.terminalPrompt = '$';
+      this.loginForm = { username: '', password: '', privateKey: '' };
+      this.showToast('已退出登录', 'info');
+    },
+
+    // ═══════════ Navigation ═══════════
+    switchView(view) {
+      this.stopPolling();
+      this.currentView = view;
+      this.refreshCurrentView();
+      this.startPolling();
+    },
+
+    // ═══════════ Polling & Refresh ═══════════
+    startPolling() {
+      this.stopPolling();
+      // 每 30 秒自动刷新当前页数据（终端页不需要）
+      if (this.currentView === 'terminal') return;
+      this.refreshTimer = setInterval(() => {
+        this.refreshCurrentView();
+      }, 30000);
+    },
+
+    stopPolling() {
+      if (this.refreshTimer) {
+        clearInterval(this.refreshTimer);
+        this.refreshTimer = null;
+      }
+    },
+
+    async refreshCurrentView() {
+      const v = this.currentView;
+      if (v === 'dashboard') { this.loadDashboard(); this.loadServers(); if (this.onlineUsersVisible) this.loadOnlineUsers(); }
+      else if (v === 'statistics') { this.switchStatsMode(this.statsMode); }
+      else if (v === 'users') { this.loadUsers(); }
+      else if (v === 'audit') { this.loadAuditLogs(); }
+      else if (v === 'ai-center') { this.loadAIRanking(); this.loadAIRecommendations(); }
+    },
+
+    async manualRefresh() {
+      if (this.refreshSpinning) return;
+      this.refreshSpinning = true;
+      await this.refreshCurrentView();
+      setTimeout(() => { this.refreshSpinning = false; }, 600);
+    },
+
+    // ═══════════ Dashboard ═══════════
+    async loadDashboard() {
+      try {
+        const res = await this.apiGet('/dashboard/overview');
+        if (res.success && res.data) this.dashboardOverview = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadServers() {
+      try {
+        const res = await this.apiGet('/dashboard/servers');
+        if (res.success && res.data) this.servers = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    quickConnect(server) {
+      this.terminalServerId = server.id;
+      this.switchView('terminal');
+      this.$nextTick(() => this.connectTerminal());
+    },
+
+    // ═══════════ Online Users ═══════════
+    async loadOnlineUsers() {
+      this.onlineUsersLoading = true;
+      try {
+        const res = await this.apiGet('/dashboard/online-users');
+        if (res.success && res.data) this.onlineUsers = res.data;
+      } catch (e) { /* ignore */ }
+      this.onlineUsersLoading = false;
+    },
+
+    async showOnlineUsers() {
+      this.onlineUsersVisible = true;
+      await this.loadOnlineUsers();
+    },
+
+    // ═══════════ 管理员踢人 ═══════════
+    async kickUser(u) {
+      if (!u || !u.sessionId) return;
+      if (!window.confirm(`确认踢出用户「${u.username}」？该用户的 SSH 会话将被强制断开。`)) return;
+      try {
+        const res = await this.apiPost(`/session/kick/${u.sessionId}`);
+        if (res.success) {
+          this.showToast('已踢出用户 ' + u.username, 'success');
+          this.loadOnlineUsers();
+        } else {
+          this.showToast(res.errorMsg || '踢出失败', 'error');
+        }
+      } catch (e) {
+        this.showToast('踢人请求失败', 'error');
+      }
+    },
+
+    // ═══════════ User Management ═══════════
+    async loadUsers() {
+      try {
+        const res = await this.apiGet('/user/list');
+        if (res.success && res.data) this.userList = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    openAddUser() {
+      this.addUserForm = { username: '', password: '', role: 'guest', adminPassword: '' };
+      this.usernameCheck = null;
+      this.usernameCheckedValue = '';
+      this.addUserVisible = true;
+    },
+
+    // 输入变化：清掉旧结果 + 防抖兜底（正常靠 blur，此处仅防快速连输）
+    onUsernameInput() {
+      this.usernameCheck = null;
+      if (this.usernameCheckTimer) { clearTimeout(this.usernameCheckTimer); this.usernameCheckTimer = null; }
+      this.usernameCheckTimer = setTimeout(() => this.checkUsernameExists(), 300);
+    },
+
+    // 失焦查重：用户输完用户名切走时检查是否已存在
+    async checkUsernameExists() {
+      if (this.usernameCheckTimer) { clearTimeout(this.usernameCheckTimer); this.usernameCheckTimer = null; }
+      const username = (this.addUserForm.username || '').trim();
+      if (!username) { this.usernameCheck = null; return; }
+      // 同用户名已查过 / 正在查，跳过，避免重复请求
+      if (username === this.usernameCheckedValue || (this.usernameChecking && username === this.usernameCheckingValue)) return;
+      this.usernameChecking = true;
+      this.usernameCheckingValue = username;
+      const res = await this.apiGet('/user/existUsername', { username });
+      this.usernameChecking = false;
+      this.usernameCheckingValue = '';
+      if (res.success) {
+        this.usernameCheckedValue = username;
+        this.usernameCheck = res.data === true
+          ? { ok: false, msg: '该用户名已存在，请换一个' }
+          : { ok: true, msg: '用户名可用' };
+      } else {
+        this.usernameCheck = null;
+      }
+    },
+
+    async submitAddUser() {
+      const username = this.addUserForm.username.trim();
+      const password = this.addUserForm.password;
+      const adminPassword = this.addUserForm.adminPassword;
+      if (!username || !password) { this.showToast('用户名和密码不能为空', 'error'); return; }
+      if (!adminPassword) { this.showToast('请输入管理员验权密码', 'error'); return; }
+      this.addUserLoading = true;
+      try {
+        // addUser 是 @RequestBody UserDTO，adminPassword 走 body 传参（UserDTO 里有该字段）
+        const res = await this.apiPost('/user/add', {
+          username, password, role: this.addUserForm.role, adminPassword,
+        });
+        if (res.success) {
+          this.showToast('新增用户成功', 'success');
+          this.addUserVisible = false;
+          this.loadUsers();
+        } else {
+          this.showToast(res.errorMsg || '新增用户失败', 'error');
+        }
+      } catch (e) {
+        this.showToast('新增用户请求失败', 'error');
+      }
+      this.addUserLoading = false;
+    },
+
+    // ═══════════ Register（邮箱验证码两步注册）═══════════
+    openRegister() {
+      this.registerForm = { email: '', code: '', username: '', password: '' };
+      this.registerStep = 1;
+      this.registerEmailCheck = null;
+      this.registerUsernameCheck = null;
+      this.registerUsernameCheckedValue = '';
+      this.registerVisible = true;
+    },
+
+    closeRegister() {
+      this.registerVisible = false;
+      if (this.registerCodeTimer) { clearInterval(this.registerCodeTimer); this.registerCodeTimer = null; }
+      this.codeCountdown = 0;
+    },
+
+    onRegisterEmailInput() {
+      this.registerEmailCheck = null;
+    },
+
+    // 邮箱失焦查重：是否已被注册（未登录时跳过，查重交给后端注册接口兜底）
+    async checkRegisterEmail() {
+      const email = (this.registerForm.email || '').trim();
+      if (!email) { this.registerEmailCheck = null; return; }
+      if (!this._isValidEmail(email)) { this.registerEmailCheck = { ok: false, msg: '邮箱格式不正确' }; return; }
+      if (!this.token) { this.registerEmailCheck = null; return; }
+      const res = await this.apiGet('/user/existEmail', { email });
+      if (res.success) {
+        this.registerEmailCheck = res.data === true
+          ? { ok: false, msg: '该邮箱已注册' }
+          : { ok: true, msg: '邮箱可用' };
+      }
+    },
+
+    _isValidEmail(email) {
+      return /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(email);
+    },
+
+    // 发送验证码（带 60s 重发倒计时）
+    async sendRegisterCode() {
+      const email = (this.registerForm.email || '').trim();
+      if (!email) { this.showToast('请先输入邮箱', 'error'); return; }
+      if (!this._isValidEmail(email)) { this.showToast('邮箱格式不正确', 'error'); return; }
+      if (this.registerEmailCheck && this.registerEmailCheck.ok === false && this.registerEmailCheck.msg.indexOf('已注册') !== -1) {
+        this.showToast('该邮箱已注册', 'error'); return;
+      }
+      this.codeSending = true;
+      try {
+        // sendCode 的 mail 是 @RequestParam，走 query 传参
+        const res = await this.apiPost('/user/sendCode?mail=' + encodeURIComponent(email));
+        if (res.allowed) {
+          this.showToast('验证码已发送，请注意查收', 'success');
+          this.startCodeCountdown(60);
+        } else {
+          this.showToast(res.errorMsg || '发送失败，请稍后重试', 'error');
+        }
+      } catch (e) {
+        this.showToast('发送验证码失败', 'error');
+      }
+      this.codeSending = false;
+    },
+
+    startCodeCountdown(seconds) {
+      this.codeCountdown = seconds;
+      if (this.registerCodeTimer) { clearInterval(this.registerCodeTimer); }
+      this.registerCodeTimer = setInterval(() => {
+        this.codeCountdown--;
+        if (this.codeCountdown <= 0) { clearInterval(this.registerCodeTimer); this.registerCodeTimer = null; }
+      }, 1000);
+    },
+
+    // 第一步：校验验证码，通过则跳到填资料页
+    async submitRegisterStep1() {
+      const email = (this.registerForm.email || '').trim();
+      const code = (this.registerForm.code || '').trim();
+      if (!email) { this.showToast('请输入邮箱', 'error'); return; }
+      if (!code) { this.showToast('请输入验证码', 'error'); return; }
+      this.registerLoading = true;
+      try {
+        // 只传 email+code，后端只做验证码校验
+        const res = await this.apiPost('/user/registerByCode', { email, code });
+        if (res.success) {
+          this.registerStep = 2;
+          this.showToast('验证码校验通过', 'success');
+        } else {
+          this.showToast(res.errorMsg || '验证码错误', 'error');
+        }
+      } catch (e) {
+        this.showToast('校验请求失败', 'error');
+      }
+      this.registerLoading = false;
+    },
+
+    // 用户名输入：清掉旧结果 + 防抖兜底
+    onRegisterUsernameInput() {
+      this.registerUsernameCheck = null;
+      if (this.registerUsernameCheckTimer) { clearTimeout(this.registerUsernameCheckTimer); this.registerUsernameCheckTimer = null; }
+      this.registerUsernameCheckTimer = setTimeout(() => this.checkRegisterUsername(), 300);
+    },
+
+    // 用户名失焦查重（未登录时跳过，查重交给后端注册接口兜底）
+    async checkRegisterUsername() {
+      if (this.registerUsernameCheckTimer) { clearTimeout(this.registerUsernameCheckTimer); this.registerUsernameCheckTimer = null; }
+      const username = (this.registerForm.username || '').trim();
+      if (!username) { this.registerUsernameCheck = null; return; }
+      if (!this.token) { this.registerUsernameCheck = null; return; }
+      if (username === this.registerUsernameCheckedValue || (this.registerUsernameChecking && username === this.registerUsernameCheckingValue)) return;
+      this.registerUsernameChecking = true;
+      this.registerUsernameCheckingValue = username;
+      const res = await this.apiGet('/user/existUsername', { username });
+      this.registerUsernameChecking = false;
+      this.registerUsernameCheckingValue = '';
+      if (res.success) {
+        this.registerUsernameCheckedValue = username;
+        this.registerUsernameCheck = res.data === true
+          ? { ok: false, msg: '该用户名已存在，请换一个' }
+          : { ok: true, msg: '用户名可用' };
+      } else {
+        this.registerUsernameCheck = null;
+      }
+    },
+
+    // 第二步：带上完整信息再次提交，后端二次校验验证码并创建用户
+    async submitRegisterStep2() {
+      const username = (this.registerForm.username || '').trim();
+      const password = this.registerForm.password;
+      const email = (this.registerForm.email || '').trim();
+      const code = (this.registerForm.code || '').trim();
+      if (!username || !password) { this.showToast('用户名和密码不能为空', 'error'); return; }
+      this.registerLoading = true;
+      try {
+        const res = await this.apiPost('/user/registerByCode', { email, code, username, password });
+        if (res.success) {
+          this.showToast('注册成功，请登录', 'success');
+          this.closeRegister();
+          // 回填登录框，方便直接登录
+          this.loginForm = { ...this.loginForm, username, password, privateKey: '' };
+        } else {
+          this.showToast(res.errorMsg || '注册失败', 'error');
+        }
+      } catch (e) {
+        this.showToast('注册请求失败', 'error');
+      }
+      this.registerLoading = false;
+    },
+
+    roleLabel(role) {
+      return ({ admin: '管理员', ops: '运维', guest: '游客' })[role] || role || '未知';
+    },
+
+    roleBadgeClass(role) {
+      if (role === 'admin') return 'online';
+      if (role === 'ops') return 'medium';
+      return '';
+    },
+
+    formatDuration(minutes) {
+      if (minutes == null || minutes < 0) return '-';
+      if (minutes < 1) return '刚刚上线';
+      const h = Math.floor(minutes / 60);
+      const m = minutes % 60;
+      if (h > 0) return h + ' 小时 ' + m + ' 分钟';
+      return m + ' 分钟';
+    },
+
+    // ═══════════ Terminal ═══════════
+    async connectTerminal() {
+      if (!this.terminalServerId) { this.showToast('请先选择服务器', 'error'); return; }
+      const server = this.servers.find(s => s.id === this.terminalServerId);
+      if (!server) { this.showToast('服务器不存在', 'error'); return; }
+      if (!server.online) { this.showToast('服务器离线，无法连接', 'error'); return; }
+
+      // Call real connect API
+      try {
+        await this.apiPost(`/terminal/connect?serverId=${this.terminalServerId}`);
+      } catch (e) { /* terminal simulation mode */ }
+
+      this.terminalSessionId = 'SSH_' + Math.random().toString(36).substr(2, 8).toUpperCase();
+      this.terminalConnected = true;
+      this.terminalServerLabel = `${server.serverName} · ${server.host}`;
+      this.terminalTitle = `SSH ${server.host} · ${this.terminalSessionId}`;
+      const safeName = server.serverName.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+      this.terminalPrompt = `root@${safeName}:#`;
+      this.terminalOutput = [];
+      this.commandHistory = [];
+      this.historyIdx = -1;
+      this.showToast('已连接 ' + server.serverName, 'success');
+      this.$nextTick(() => { this.$refs.terminalInputRef?.focus(); });
+    },
+
+    disconnectTerminal() {
+      if (!this.terminalConnected) return;
+      this.terminalConnected = false;
+      this.terminalSessionId = null;
+      this.terminalServerLabel = '未连接服务器';
+      this.terminalTitle = 'SSH Terminal · 未连接';
+      this.terminalPrompt = '$';
+      this.showToast('已断开连接', 'info');
+    },
+
+    handleTerminalKey(e) {
+      if (e.key !== 'Enter') {
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (this.commandHistory.length > 0 && this.historyIdx < this.commandHistory.length - 1) {
+            this.historyIdx++;
+            this.terminalInput = this.commandHistory[this.commandHistory.length - 1 - this.historyIdx];
+          }
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (this.historyIdx > 0) {
+            this.historyIdx--;
+            this.terminalInput = this.commandHistory[this.commandHistory.length - 1 - this.historyIdx];
+          } else {
+            this.historyIdx = -1;
+            this.terminalInput = '';
+          }
+        }
+        return;
+      }
+
+      e.preventDefault();
+      const cmd = this.terminalInput.trim();
+      if (!cmd) return;
+
+      this.commandHistory.push(cmd);
+      this.historyIdx = -1;
+      this.terminalInput = '';
+
+      // Execute command
+      if (cmd === 'clear') {
+        this.terminalOutput = [];
+      } else if (TERMINAL_SIM[cmd]) {
+        const lines = TERMINAL_SIM[cmd].split('\n');
+        lines.forEach(l => this.terminalOutput.push({ cls: 'output', text: this.esc(l) }));
+      } else if (cmd === 'date') {
+        this.terminalOutput.push({ cls: 'output', text: this.esc(new Date().toString()) });
+      } else {
+        this.terminalOutput.push({ cls: 'error', text: 'bash: ' + this.esc(cmd) + ': command not found' });
+      }
+
+      this.$nextTick(() => {
+        const body = this.$refs.terminalBodyRef;
+        if (body) body.scrollTop = body.scrollHeight;
+      });
+    },
+
+    // ═══════════ Statistics ═══════════
+    async switchStatsMode(mode) {
+      this.statsMode = mode;
+      if (mode === 'personal') {
+        await this.loadPersonalStats();
+      } else {
+        await this.loadGlobalStats();
+        await this.loadRiskTrend();
+      }
+    },
+
+    async loadPersonalStats() {
+      try {
+        const res = await this.apiGet('/statistics/personal');
+        if (res.success && res.data) this.personalStats = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadGlobalStats() {
+      try {
+        const res = await this.apiGet('/statistics/global');
+        if (res.success && res.data) this.globalStats = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadRiskTrend() {
+      try {
+        const res = await this.apiGet('/statistics/risk-trend');
+        if (res.success && res.data) this.riskTrendData = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    // ═══════════ Audit ═══════════
+    onAuditFilterChange() {
+      clearTimeout(this.auditTimer);
+      this.auditTimer = setTimeout(() => {
+        this.auditPage = 1;
+        this.loadAuditLogs();
+      }, 300);
+    },
+
+    async loadAuditLogs() {
+      try {
+        const params = {
+          page: this.auditPage,
+          pageSize: this.auditPageSize,
+          username: this.auditFilters.username || undefined,
+        };
+        if (this.auditFilters.dateFrom) params.beginTime = this.auditFilters.dateFrom + ' 00:00:00';
+        if (this.auditFilters.dateTo) params.endTime = this.auditFilters.dateTo + ' 23:59:59';
+        // Backend doesn't have riskLevel filter on the API, so we filter client-side
+        const res = await this.apiGet('/audit/list', params);
+        if (res.success) {
+          let logs = res.data || [];
+          if (this.auditFilters.riskLevel) {
+            // 后端 total 是过滤前的总数；riskLevel 为前端本地过滤，
+            // 二者叠加时分页总数会有偏差（可接受的简化）
+            logs = logs.filter(l => l.riskLevel === this.auditFilters.riskLevel);
+          }
+          this.auditLogs = logs;
+          // 分页总数以后端返回为准（后端已配置 MP 分页拦截器，total 是真实总数）
+          this.auditTotal = res.total != null ? Number(res.total) : logs.length;
+        }
+      } catch (e) { /* ignore */ }
+    },
+
+    goAuditPage(page) {
+      if (page < 1 || page > this.totalAuditPages) return;
+      this.auditPage = page;
+      this.loadAuditLogs();
+    },
+
+    async viewAuditDetail(log) {
+      try {
+        const res = await this.apiGet(`/audit/detail/${log.id}`);
+        if (res.success && res.data) {
+          this.auditDetail = res.data;
+        } else {
+          this.auditDetail = log;
+        }
+      } catch (e) {
+        this.auditDetail = log;
+      }
+      this.auditDetailVisible = true;
+    },
+
+    riskLabel(level) {
+      if (level === 'HIGH') return '高风险';
+      if (level === 'MEDIUM') return '中风险';
+      return '低风险';
+    },
+
+    // 审计日志状态文案：0=正常 1=静态拦截 2=AI高危 3=AI中危
+    auditStatusLabel(status) {
+      if (status === 1) return '已拦截(静态规则)';
+      if (status === 2) return '高危(已执行+告警)';
+      if (status === 3) return '中危(已记录)';
+      return '正常执行';
+    },
+
+    // ═══════════ AI Center ═══════════
+    async analyzeCommand() {
+      const cmd = this.aiCommandInput.trim();
+      if (!cmd) { this.showToast('请输入待分析的命令', 'error'); return; }
+
+      this.aiAnalyzing = true;
+      try {
+        const res = await this.apiPost('/ai/analyze', { command: cmd });
+        if (res.success && res.data) {
+          // 后端返回嵌套结构(aiAnalysis.level / aiAnalysis.reason)，
+          // 前端模板需要平铺的 score / riskLevel / reason，这里做归一化
+          const d = res.data;
+          const ai = d.aiAnalysis || {};
+          const level = ai.level || 'LOW';
+          this.aiAnalysisResult = {
+            command: d.command || cmd,
+            riskLevel: level,
+            reason: ai.reason || (d.blockReasons && d.blockReasons.length ? d.blockReasons.join('；') : '未检测到明显风险'),
+            score: this.levelScore(level),
+            blocked: !!d.blocked,
+          };
+        } else {
+          // Fallback local analysis
+          this.aiAnalysisResult = this.localAnalyze(cmd);
+        }
+      } catch (e) {
+        this.aiAnalysisResult = this.localAnalyze(cmd);
+      }
+      this.aiAnalyzing = false;
+    },
+
+    localAnalyze(cmd) {
+      const lower = cmd.toLowerCase();
+      let score, riskLevel, reason;
+      if (/rm\s+-rf|rm\s+-r\s+\/|dd\s+if=|mkfs\.|:\(\)\s*\{/.test(lower)) {
+        score = 95; riskLevel = 'HIGH'; reason = '检测到高危删除/格式化操作，可能导致数据不可逆丢失';
+      } else if (/chmod\s+777|iptables\s+-F|kill\s+-9|docker\s+rm\s+-f/.test(lower)) {
+        score = 78; riskLevel = 'HIGH'; reason = '检测到权限提升或破坏性操作，存在安全风险';
+      } else if (/sudo|passwd|useradd|usermod|chown/.test(lower)) {
+        score = 55; riskLevel = 'MEDIUM'; reason = '检测到权限相关操作，建议确认操作意图';
+      } else if (/wget.*\|.*sh|curl.*\|.*sh|\.\/.*\.sh/.test(lower)) {
+        score = 62; riskLevel = 'MEDIUM'; reason = '检测到外部脚本执行，存在供应链攻击风险';
+      } else if (/docker\s+exec|kubectl\s+exec|ssh\s+-/.test(lower)) {
+        score = 45; riskLevel = 'MEDIUM'; reason = '检测到容器/远程访问操作，需确认目标合法性';
+      } else {
+        score = 15; riskLevel = 'LOW'; reason = '未检测到明显风险，该命令属于常规操作';
+      }
+      return { command: cmd, score, riskLevel, reason };
+    },
+
+    // 根据 AI 风险等级映射一个展示分数（后端不返回 score 字段）
+    levelScore(level) {
+      if (level === 'HIGH') return 90;
+      if (level === 'MEDIUM') return 60;
+      return 20;
+    },
+
+    async loadAIRanking() {
+      try {
+        const res = await this.apiGet('/ai/ranking');
+        if (res.success && res.data) this.aiRanking = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    async loadAIRecommendations() {
+      try {
+        const res = await this.apiGet('/ai/recommendations');
+        if (res.success && res.data) this.aiRecommendations = res.data;
+      } catch (e) { /* ignore */ }
+    },
+
+    // ═══════════ Helpers ═══════════
+    esc(s) {
+      return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    },
+  },
+
+  mounted() {
+    // 从 localStorage 恢复登录状态，防止刷新后丢失
+    const savedToken = localStorage.getItem('token');
+    const savedUser = localStorage.getItem('user');
+    if (savedToken && savedUser) {
+      this.token = savedToken;
+      try { this.currentUser = JSON.parse(savedUser); } catch (e) { this.currentUser = null; }
+      if (this.currentUser) {
+        this.currentView = 'dashboard';
+        this.loadDashboard();
+        this.loadServers();
+        this.startPolling();
+      }
+    } else {
+      this.loadServers();
+    }
+  },
+
+  beforeUnmount() {
+    this.stopPolling();
+  },
+}).mount('#app');
+</script>
+</body>
+</html>

@@ -15,29 +15,53 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * DeepSeek API 调用服务
+ * AI 调用服务 — 双通道（OpenAI 兼容 /chat/completions 端点）
  * <p>
- * 使用 /v1/chat/completions 端点（兼容 OpenAI 格式），
- * 对 shell 命令进行 AI 安全审查。
- * <p>
+ * <ul>
+ *   <li><b>命令审查</b>：千问 Qwen（qwen.* 配置，低频限流）— {@link #reviewCommand}</li>
+ *   <li><b>策略建议</b>：DeepSeek（deepseek.* 配置）— {@link #generateRecommendations}</li>
+ * </ul>
  * 调用失败时自动降级放行，不阻塞用户操作。
  */
 @Service
 @Slf4j
 public class DeepSeekService {
 
-    @Value("${deepseek.api-key}")
+    // ==================== 命令审查 AI：千问 Qwen（qwen.*） ====================
+    @Value("${qwen.api-key}")
     private String apiKey;
 
-    @Value("${deepseek.base-url}")
+    @Value("${qwen.base-url}")
     private String baseUrl;
 
-    @Value("${deepseek.model}")
+    @Value("${qwen.model}")
     private String model;
+
+    @Value("${qwen.daily-token-limit:20000}")
+    private long dailyTokenLimit;
+
+    // ==================== 策略建议 AI：DeepSeek（deepseek.*） ====================
+    @Value("${deepseek.api-key}")
+    private String recommendApiKey;
+
+    @Value("${deepseek.base-url}")
+    private String recommendBaseUrl;
+
+    @Value("${deepseek.model}")
+    private String recommendModel;
+
+    /** 当日已消耗 token（跨天自动重置），用于每日 AI 额度控制 */
+    private volatile String quotaDay = "";
+    private final AtomicLong dailyTokensUsed = new AtomicLong(0);
+
+    /** 响应缺失 usage 字段时的保守估算值（单次命令审查） */
+    private static final long QUOTA_ESTIMATE_PER_CALL = 1000;
 
     @Resource
     private RestTemplate restTemplate;
@@ -115,6 +139,13 @@ public class DeepSeekService {
             return AiReviewResult.fallback();
         }
 
+        // 每日额度控制：超限后跳过 AI 审查，降级放行（静态规则仍兜底）
+        if (quotaExceeded()) {
+            log.warn("今日 AI token 额度已达上限（{}/{}），跳过 AI 审查，降级放行",
+                    dailyTokensUsed.get(), dailyTokenLimit);
+            return AiReviewResult.fallback();
+        }
+
         // 截断过长命令（token 限制，最长 2000 字符足够覆盖绝大多数场景）
         String truncated = command.length() > 2000 ? command.substring(0, 2000) + "..." : command;
 
@@ -122,10 +153,11 @@ public class DeepSeekService {
         DeepSeekReq request = buildRequest(truncated, username, role);
 
         try {
-            log.info("调用 DeepSeek 审查命令: user={}, role={}, cmd={}",
+            log.info("调用 AI 审查命令: user={}, role={}, cmd={}",
                     username, role, truncated.substring(0, Math.min(80, truncated.length())));
 
-            DeepSeekResp response = callDeepSeekApi(request);
+            DeepSeekResp response = callDeepSeekApi(baseUrl, apiKey, request);  // 千问
+            recordTokens(response);   // 无论解析成功与否，本次 token 均已消耗
 
             if (response == null || response.getFirstContent() == null) {
                 log.warn("DeepSeek 返回空内容");
@@ -164,8 +196,9 @@ public class DeepSeekService {
             return null;
         }
 
+        // 策略建议固定走 DeepSeek（deepseek.* 配置），不占用千问的每日额度
         DeepSeekReq request = new DeepSeekReq();
-        request.setModel(model);
+        request.setModel(recommendModel);
         request.setMessages(List.of(
                 new Msg("system", RECOMMEND_PROMPT),
                 new Msg("user", "以下是本月的审计统计数据，请据此生成安全策略建议：\n" + statistics)
@@ -176,7 +209,7 @@ public class DeepSeekService {
 
         try {
             log.info("调用 DeepSeek 生成策略建议, statsLen={}", statistics.length());
-            DeepSeekResp response = callDeepSeekApi(request);
+            DeepSeekResp response = callDeepSeekApi(recommendBaseUrl, recommendApiKey, request);
 
             if (response == null || response.getFirstContent() == null) {
                 log.warn("DeepSeek 生成建议返回空内容");
@@ -216,20 +249,24 @@ public class DeepSeekService {
         req.setTemperature(0.1);   // 低温度 → 更确定性的输出
         req.setMaxTokens(256);      // 只需返回 JSON，256 token 足够
         req.setStream(false);
+        req.setEnableThinking(false); // Qwen 3.x 默认开思考，本场景只需 JSON，显式关闭
         return req;
     }
 
     /**
      * 发送 HTTP POST 到 DeepSeek
      */
-    private DeepSeekResp callDeepSeekApi(DeepSeekReq request) {
+    private DeepSeekResp callDeepSeekApi(String baseUrl, String apiKey, DeepSeekReq request) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(apiKey);
 
         HttpEntity<DeepSeekReq> entity = new HttpEntity<>(request, headers);
 
-        String url = baseUrl + "/v1/chat/completions";
+        // base-url 需自带 OpenAI 兼容路径（DeepSeek: https://api.deepseek.com 或 .../v1，
+        // Qwen DashScope: https://dashscope.aliyuncs.com/compatible-mode/v1），
+        // 这里只补 /chat/completions，避免出现 /v1/v1/chat/completions 的重复前缀
+        String url = baseUrl + "/chat/completions";
 
         ResponseEntity<DeepSeekResp> response = restTemplate.exchange(
                 url,
@@ -239,6 +276,35 @@ public class DeepSeekService {
         );
 
         return response.getBody();
+    }
+
+    /**
+     * 每日 AI token 额度是否已用尽（按 LocalDate 跨天自动重置）
+     */
+    private boolean quotaExceeded() {
+        String today = LocalDate.now().toString();
+        if (!today.equals(quotaDay)) {
+            quotaDay = today;
+            dailyTokensUsed.set(0);
+        }
+        return dailyTokensUsed.get() >= dailyTokenLimit;
+    }
+
+    /**
+     * 累加本次调用消耗的 token。
+     * 优先取响应中的 usage.total_tokens；usage 缺失时按保守估算值计，
+     * 避免额度形同虚设。
+     */
+    private void recordTokens(DeepSeekResp resp) {
+        if (resp == null) {
+            return;
+        }
+        DeepSeekResp.Usage usage = resp.getUsage();
+        if (usage != null && usage.getTotalTokens() != null) {
+            dailyTokensUsed.addAndGet(usage.getTotalTokens());
+        } else {
+            dailyTokensUsed.addAndGet(QUOTA_ESTIMATE_PER_CALL);
+        }
     }
 
     /**
