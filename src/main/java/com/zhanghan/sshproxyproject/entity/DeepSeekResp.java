@@ -46,6 +46,25 @@ public class DeepSeekResp {
 
         @JsonProperty("total_tokens")
         private Integer totalTokens;
+
+        /** 上下文缓存命中明细（DashScope 兼容模式返回） */
+        @JsonProperty("prompt_tokens_details")
+        private PromptTokensDetails promptTokensDetails;
+
+        /** 本次新创建缓存块的 token 数（显式缓存） */
+        @JsonProperty("cache_creation_input_tokens")
+        private Integer cacheCreationInputTokens;
+
+        /** 本次命中缓存读取的 token 数 */
+        @JsonProperty("cache_read_input_tokens")
+        private Integer cacheReadInputTokens;
+    }
+
+    @Data
+    public static class PromptTokensDetails {
+        /** 本次请求中命中缓存的输入 token 数 */
+        @JsonProperty("cached_tokens")
+        private Integer cachedTokens;
     }
 
     // ---- 便捷方法 ----
