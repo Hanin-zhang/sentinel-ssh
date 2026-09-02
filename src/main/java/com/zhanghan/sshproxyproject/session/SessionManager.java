@@ -53,24 +53,30 @@ public class SessionManager {
         return true;
     }
 
-    private void closeSession(String sessionId, SessionInfo sessionInfo) {
+    public void closeSession(String sessionId, SessionInfo sessionInfo) {
         ServerSession userSession = sessionInfo.getUserSession();
         ClientSession toBackendSession = sessionInfo.getToBackendSession();
         Integer serverId = sessionInfo.getServerId();
-        try {
-            log.info("关闭会话");
-            if(userSession != null) {
+        log.info("关闭会话 sessionId={}, serverId={}", sessionId, serverId);
+
+        // 两条真实连接各自容错:一条 close 失败不影响另一条
+        if (userSession != null) {
+            try {
                 userSession.close();
+            } catch (IOException e) {
+                log.warn("关闭用户会话失败 sessionId={}", sessionId, e);
             }
-            if(toBackendSession != null) {
-                toBackendSession.close();
-            }
-            //监听器删除相关信息
-            loginListener.removeFromOnlineSessionPool(sessionId,serverId);
-        } catch (IOException e) {
-            log.error("关闭会话失败",e);
-            throw new RuntimeException();
         }
+        if (toBackendSession != null) {
+            try {
+                toBackendSession.close();
+            } catch (IOException e) {
+                log.warn("关闭后端会话失败 sessionId={}", sessionId, e);
+            }
+        }
+        // 无论上面是否抛异常,都要把会话移出在线池并扣减 DB 连接数,
+        // 避免异常关闭的会话一直卡在池里(remove 非 null 才扣,与 closeAll/心跳竞态安全)
+        loginListener.removeFromOnlineSessionPool(sessionId, serverId);
     }
 
 }
