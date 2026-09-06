@@ -3,6 +3,7 @@ package com.zhanghan.sshproxyproject.service;
 import ch.qos.logback.core.testUtil.RandomUtil;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.zhanghan.sshproxyproject.common.utils.EmailUtil;
+import com.zhanghan.sshproxyproject.dto.LoginFormDTO;
 import com.zhanghan.sshproxyproject.dto.RegisterDTO;
 import com.zhanghan.sshproxyproject.dto.Result;
 import com.zhanghan.sshproxyproject.entity.User;
@@ -20,10 +21,17 @@ import com.zhanghan.sshproxyproject.common.Constants;
 import com.zhanghan.sshproxyproject.common.utils.CaffeineUtil;
 import com.zhanghan.sshproxyproject.common.utils.EmailValidateUtil;
 import java.time.LocalDateTime;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @Slf4j
 public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements IUserService {
+
+    @Resource
+    private ConcurrentHashMap<String, LoginFormDTO> LOGIN_MESSAGE;
 
     @Resource
     private UserMapper userMapper;
@@ -115,6 +123,13 @@ public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements I
             return Result.fail("验证码不正确或已过期！");
         }
 
+        //已存在该邮箱 → 邮箱+验证码正确即视为登录成功（直登，无需密码）
+        // ④ 查重：邮箱
+        if (userMapper.findIfHavingUserByEmail(email) != null) {
+            return loginByemail(email);
+        }
+
+        //没有使用过，接着注册
         // ③ 只有 email+code，属于第一步验证码校验，通过即返回
         String username = registerDTO.getUsername() == null ? "" : registerDTO.getUsername().trim();
         String password = registerDTO.getPassword();
@@ -125,10 +140,6 @@ public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements I
             return Result.fail("用户名或密码不能为空！");
         }
 
-        // ④ 查重：邮箱 + 用户名
-        if (userMapper.findIfHavingUserByEmail(email) != null) {
-            return Result.fail("该邮箱已注册");
-        }
         if (userMapper.findIfHavingUser(username) != null) {
             return Result.fail("该用户名已存在");
         }
@@ -145,6 +156,35 @@ public class IUserServiceImpl extends ServiceImpl<UserMapper, User> implements I
                 .updateTime(LocalDateTime.now())
                 .build();
         return save(user) ? Result.ok() : Result.fail("注册失败，请稍后重试");
+    }
+
+    private Result loginByemail(String email) {
+
+        //只查 username + status（password 用不到，不从库读出），由 selectByEmail 返回
+        LoginFormDTO found = userMapper.selectByEmail(email);
+
+        //账号不存在（理论上不会走到，防御一次查询）
+        if (found == null || !StringUtils.hasText(found.getUsername())) {
+            return Result.fail("该账号不存在");
+        }
+
+        //账号被禁用（status 1正常 0禁用），与密码登录 LoginUtil 的校验保持一致
+        if (found.getStatus() != null && found.getStatus() == 0) {
+            log.warn("用户邮箱{}-账号已被禁用，拒绝登录", email);
+            return Result.fail("该账号已被禁用，无法登录");
+        }
+
+        //校验成功：生成token，存 username 进用户池（拦截器按 username 认人）
+        String token = UUID.randomUUID().toString();
+        LoginFormDTO login = LoginFormDTO.builder().username(found.getUsername()).build();
+        LOGIN_MESSAGE.put(token, login);
+        log.info("用户邮箱{}-登录成功", email);
+
+        //把 token + 账号用户名一起返回，前端据此完成"验证码即登录"体验
+        Map<String, Object> data = new HashMap<>();
+        data.put("token", token);
+        data.put("username", login.getUsername());
+        return Result.ok(data);
     }
 
     /*

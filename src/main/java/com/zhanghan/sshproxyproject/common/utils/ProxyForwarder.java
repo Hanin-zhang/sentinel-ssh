@@ -59,8 +59,6 @@ import static com.zhanghan.sshproxyproject.session.SessionManager.ONLINE_SESSION
 @Slf4j
 public class ProxyForwarder {
 
-    @Resource(name = "workExecutor")
-    private Executor workThreadPool;
     @Resource(name = "ioExecutor")
     private Executor ioThreadPool;
     @Resource

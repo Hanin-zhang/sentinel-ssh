@@ -1,15 +1,14 @@
 package com.zhanghan.sshproxyproject.service;
 
 import com.zhanghan.sshproxyproject.common.utils.LoginUtil;
-import com.zhanghan.sshproxyproject.common.utils.UserHolder;
 import com.zhanghan.sshproxyproject.dto.LoginFormDTO;
 import com.zhanghan.sshproxyproject.dto.Result;
-import com.zhanghan.sshproxyproject.entity.User;
+import com.zhanghan.sshproxyproject.mapper.UserMapper;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpSession;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -24,9 +23,11 @@ public class LoginServiceImpl implements  ILoginService{
     private LoginUtil loginUtil;
     @Resource
     private ConcurrentHashMap<String,LoginFormDTO> LOGIN_MESSAGE;
+    @Autowired
+    private UserMapper userMapper;
 
     /*
-    * 用户登录
+    * 用户登录（密码）
     * */
     @Override
     public Result login(LoginFormDTO loginFormDTO, HttpSession session) {
@@ -55,4 +56,5 @@ public class LoginServiceImpl implements  ILoginService{
 
         return Result.ok(token);
     }
+
 }

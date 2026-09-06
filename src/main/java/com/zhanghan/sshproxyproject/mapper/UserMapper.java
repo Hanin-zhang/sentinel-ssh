@@ -1,12 +1,11 @@
 package com.zhanghan.sshproxyproject.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.zhanghan.sshproxyproject.dto.LoginFormDTO;
 import com.zhanghan.sshproxyproject.entity.User;
-import lombok.extern.slf4j.Slf4j;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
-import org.springframework.scheduling.annotation.Scheduled;
 
 @Mapper
 public interface UserMapper extends BaseMapper<User> {
@@ -22,4 +21,7 @@ public interface UserMapper extends BaseMapper<User> {
 
     @Select("select id from user where email = #{email}")
     Long findIfHavingUserByEmail(String email);
+
+    @Select("select username , status from user where email = #{email}")
+    LoginFormDTO selectByEmail(String email);
 }

@@ -15,4 +15,6 @@ public class LoginFormDTO {
 
     private String password;
 
+    private Integer status;
+
 }
