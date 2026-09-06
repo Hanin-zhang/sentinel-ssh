@@ -22,6 +22,6 @@ public interface UserMapper extends BaseMapper<User> {
     @Select("select id from user where email = #{email}")
     Long findIfHavingUserByEmail(String email);
 
-    @Select("select username , status from user where email = #{email}")
+    @Select("select username , password ,status from user where email = #{email}")
     LoginFormDTO selectByEmail(String email);
 }

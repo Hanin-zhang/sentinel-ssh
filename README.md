@@ -17,14 +17,14 @@
 - **全量命令审计**：每条命令（含用户、IP、目标服务器、拦截状态）落库 `audit_log`，状态 0/1/2/3 区分来源，支持多条件分页检索。
 - **统计分析**：个人/全局统计、近 7 天风险趋势、危险命令用户排行榜（基于真实审计数据）。
 - **AI 安全中心**：命令风险分析接口（静态规则 + AI 双重判定）、危险命令排行、每日 0 点由 AI 基于审计数据自动生成安全策略建议。
-- **用户管理与邮箱验证码注册**：管理员验权后新增用户；用户可通过邮箱验证码两步注册（角色强制 `guest`），验证码发送带本地限流。
+- **用户管理与邮箱验证码登录/注册**：管理员验权后新增用户；用户可用邮箱验证码登录或注册——同一 `registerByCode` 接口：**已注册邮箱 + 验证码正确即免密直登**，未注册邮箱走两步注册（角色强制 `guest`）；验证码发送带本地限流。
 - **在线会话管理**：在线会话池、心跳检测（20 分钟无活动自动回收）、管理员强制踢人、后端服务器 TCP 健康检查。
 
 ## 🛠技术栈
 
 | 分类 | 组件 | 版本 / 说明 |
 |------|------|-------------|
-| 语言 / 框架 | JDK 17 · Spring Boot 3.2.2 · Maven | |
+| 语言 / 框架 | JDK 21（虚拟线程） · Spring Boot 3.2.2 · Maven | |
 | SSH 代理 | Apache MINA SSHD | 2.16.0（`sshd-core` + `sshd-netty`，Netty IO 后端支撑高并发连接） |
 | ORM | MyBatis-Plus 3.5.14 + `mybatis-plus-jsqlparser` | 内置分页插件 `PaginationInnerInterceptor` |
 | 数据库 | MySQL 8.x（`mysql-connector-j`） | |
@@ -105,8 +105,8 @@
 - 基于 Caffeine 实现三层限流：1 分钟发送冷却、10 分钟最多 5 次（`AtomicInteger` + CAS 原子计数）、验证码 5 分钟过期，缓存上限 2 万条自动淘汰；重发即覆盖旧码，杜绝过期码复用。
 - 单机场景无需引入 Redis，降低部署复杂度。
 
-**5. 线程池精细化分工（5 组）**
-- `listenExecutor(1/1)` 监听新连接 → `workExecutor(8/20)` 认证与连接建立 → `ioExecutor(10/30)` 双向数据转发长任务 → `alertExecutor(2/8)` AI 审查 + 告警 → `recommendExecutor(1/2)` 每日策略生成。队列满时统一 `CallerRunsPolicy` 回退执行，不丢任务。
+**5. 线程池精细化分工 + JDK 21 虚拟线程（ioExecutor 已迁虚拟线程）**
+- `listenExecutor(1/1)` 监听新连接 → `workExecutor(20/30)` 认证与连接建立 → `ioExecutor` **虚拟线程执行器**（`Executors.newVirtualThreadPerTaskExecutor()`，每个数据转发任务一条虚拟线程，替代原 10/30 平台线程池，海量转发会话的阻塞不再占用平台线程）→ `alertExecutor(2/8)` AI 审查 + 告警 → `recommendExecutor(1/2)` 每日策略生成。有界平台池队列满时统一 `CallerRunsPolicy` 回退执行，不丢任务。
 
 **6. 实时告警 + 自动止损**
 - 高危告警经 SSE（`SseEmitter`，15s 心跳保活）实时推送给在线管理员；AI 判定"反弹 Shell / 后门"类别时异步强制断开会话，将损失窗口压缩到最小。
@@ -118,7 +118,7 @@
 ## 🚀快速部署启动
 
 ### 1. 环境要求
-- JDK 17+、Maven 3.6+
+- JDK 21+（`java.version` 已升至 21，ioExecutor 使用虚拟线程）、Maven 3.6+
 - MySQL 8.0+
 - （可选）DeepSeek API Key，用于 AI 命令审查；无 Key 时系统自动降级放行，静态规则仍生效
 - （可选）可用的 SMTP 邮箱账号，用于验证码注册；无邮件服务时验证码功能不可用
@@ -201,7 +201,7 @@ SSHProxy-project/
 │   │       └── LoginUtil.java / UserHolder.java / EmailUtil.java ...
 │   ├── config/
 │   │   ├── SshServerConfig.java         # SSHD 代理服务器(52020)
-│   │   ├── ThreadPoolConfig.java        # 5 组线程池定义
+│   │   ├── ThreadPoolConfig.java        # 线程池定义(listen/work/alert/recommend 有界池 + ioExecutor 虚拟线程)
 │   │   ├── MybatisPlusConfig.java       # 分页插件
 │   │   ├── OpenApiConfig.java           # Swagger 文档 + authorization 鉴权
 │   │   └── CorsConfig / MvcConfig / MailConfig / SshClientConfig ...
@@ -225,7 +225,7 @@ SSHProxy-project/
 
 ## 📋注意事项
 
-- **认证方式**：目前启用**用户名 + 密码**认证（用户密码与数据库明文比对）；公钥认证代码已实现但处于注释态（未启用）。代理连后端使用 `sys_role` 表中的角色账号密码自动登录。
+- **认证方式**：SSH 代理口（52020）为**用户名 + 密码**认证（用户密码与数据库明文比对）；Web 端另支持**已注册邮箱 + 验证码免密直登**。公钥认证代码（`LoginUtil.loginByKey`）已实现但处于注释态（未启用）。代理连后端使用 `sys_role` 表中的角色账号密码自动登录。
 - **密码安全**：用户密码与数据库密码均为**明文存储/比对**，未使用 BCrypt 加密，仅适合学习/课设环境；生产环境必须升级为加盐哈希。
 - **AI 审查的 Fail Open**：DeepSeek 不可用时，灰区命令会被放行且不审查（静态规则仍兜底）。若要"AI 挂则全拦截"，需改为 Fail Closed 策略。
 - **静态规则的边界**：正则匹配可被混淆绕过（反斜杠转义、变量展开、命令替换 `$(...)` 等），AI 异步审查是补位而非最终防线；已知改进方向为本地嵌入模型 + 向量语义匹配。
