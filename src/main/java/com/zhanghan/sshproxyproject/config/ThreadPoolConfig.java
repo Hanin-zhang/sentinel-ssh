@@ -32,8 +32,8 @@ public class ThreadPoolConfig {
     @Bean("workExecutor")
     public Executor workExecutor() {
         return new ThreadPoolExecutor(
-                8,
                 20,
+                30,
                 60L,
                 TimeUnit.SECONDS,
                 new LinkedBlockingDeque<>(600),
@@ -45,15 +45,7 @@ public class ThreadPoolConfig {
     //IO长任务线程，负责与后台建立连接
     @Bean("ioExecutor")
     public Executor ioExecutor() {
-        return new ThreadPoolExecutor(
-                10,
-                30,
-                120L,
-                TimeUnit.SECONDS,
-                new LinkedBlockingDeque<>(1000),
-                Executors.defaultThreadFactory(),
-                new ThreadPoolExecutor.CallerRunsPolicy()
-        );
+        return Executors.newVirtualThreadPerTaskExecutor();
     }
 
     /**
